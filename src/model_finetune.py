@@ -77,7 +77,7 @@ def evaluate_model_bleu(fine_tuned_model, evl_data, get_model_responses_func):
     
     Args:
         job_status: Object containing fine-tuned model information
-        val_data: List of validation examples with message content
+        evl_data: List of validation examples with message content
         get_model_responses_func: Function that generates model responses given model and data
     
     Returns:
@@ -109,7 +109,7 @@ def evaluate_model_bleu(fine_tuned_model, evl_data, get_model_responses_func):
         print(f"BLEU Score (NLTK): {bleu_score:.4f}")
         
         # Prepare data for SacreBLEU
-        references_sacrebleu = [[example['messages'][2]['content']] for example in val_data]
+        references_sacrebleu = [[example['messages'][2]['content']] for example in evl_data]
         hypotheses_sacrebleu = model_responses
         
         # Calculate SacreBLEU scores
@@ -131,15 +131,3 @@ def evaluate_model_bleu(fine_tuned_model, evl_data, get_model_responses_func):
     except Exception as e:
         print(f"Error evaluating model: {str(e)}")
         raise
-
-# Example usage:
-# Assuming you have:
-# - job_status from fine-tuning job
-# - val_data as list of examples with messages
-# - get_model_responses function defined
-#
-# def get_model_responses(model_name, data):
-#     # Your implementation here
-#     pass
-#
-# bleu_nltk, bleu_sacre = evaluate_model_bleu(job_status, val_data, get_model_responses)
