@@ -70,15 +70,13 @@ def get_model_responses(fine_tuned_model, validation_data):
             responses.append("")
     return responses
 
-
-
-def evaluate_model_bleu(fine_tuned_model, evl_data, get_model_responses_func):
+def evaluate_model_bleu(fine_tuned_model, val_data, get_model_responses_func):
     """
     Evaluates a fine-tuned model using BLEU metrics (both NLTK and SacreBLEU implementations).
     
     Args:
         fine_tuned_model: Model name to evaluate
-        evl_data: List of validation examples
+        val_data: List of validation examples
         get_model_responses_func: Function that generates model responses given model and data
     
     Returns:
@@ -89,11 +87,11 @@ def evaluate_model_bleu(fine_tuned_model, evl_data, get_model_responses_func):
             raise ValueError("No fine-tuned model found in job status")
 
         # Get model responses
-        model_responses = get_model_responses_func(fine_tuned_model, evl_data)
+        model_responses = get_model_responses_func(fine_tuned_model, val_data)
         
         # Prepare data for NLTK BLEU
         references = []
-        for example in evl_data:
+        for example in val_data:
             if isinstance(example, dict) and 'messages' in example and len(example['messages']) > 2:
                 # Standard format with 'messages' list
                 references.append([example['messages'][2]['content'].split()])
@@ -113,7 +111,7 @@ def evaluate_model_bleu(fine_tuned_model, evl_data, get_model_responses_func):
         
         # Prepare data for SacreBLEU
         references_sacrebleu = []
-        for example in evl_data:
+        for example in val_data:
             if isinstance(example, dict) and 'messages' in example and len(example['messages']) > 2:
                 references_sacrebleu.append([example['messages'][2]['content']])
             elif isinstance(example, dict) and 'response' in example:
