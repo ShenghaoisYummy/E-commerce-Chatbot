@@ -1,3 +1,7 @@
+import openai
+from tqdm import tqdm
+from nltk.translate.bleu_score import corpus_bleu, SmoothingFunction
+from sacrebleu import BLEU
 
 def create_fine_tuning_job(
     training_file_id: str,
