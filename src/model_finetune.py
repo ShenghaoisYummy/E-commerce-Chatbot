@@ -34,7 +34,7 @@ def create_fine_tuning_job(
             }
         )
         print(f"Fine-tuning job created: {fine_tuning_job.id}")
-        return fine_tuning_job.id
+        return fine_tuning_job
         
     except Exception as e:
         print(f"Error creating fine-tuning job: {str(e)}")
