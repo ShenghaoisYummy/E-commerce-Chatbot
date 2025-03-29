@@ -71,23 +71,20 @@ def get_model_responses(fine_tuned_model, validation_data):
     return responses
 
 
+
 def evaluate_model_bleu(fine_tuned_model, evl_data, get_model_responses_func):
     """
     Evaluates a fine-tuned model using BLEU metrics (both NLTK and SacreBLEU implementations).
     
     Args:
-        job_status: Object containing fine-tuned model information
-        evl_data: List of validation examples with message content
+        fine_tuned_model: Model name to evaluate
+        evl_data: List of validation examples
         get_model_responses_func: Function that generates model responses given model and data
     
     Returns:
         tuple: (NLTK BLEU score, Average SacreBLEU score)
-    
-    Raises:
-        Exception: If evaluation fails due to invalid data or model issues
     """
     try:
-
         if not fine_tuned_model:
             raise ValueError("No fine-tuned model found in job status")
 
@@ -97,9 +94,15 @@ def evaluate_model_bleu(fine_tuned_model, evl_data, get_model_responses_func):
         # Prepare data for NLTK BLEU
         references = []
         for example in evl_data:
-            if len(example['messages']) < 3:
-                raise ValueError("Validation data missing expected message content")
-            references.append([example['messages'][2]['content'].split()])
+            if isinstance(example, dict) and 'messages' in example and len(example['messages']) > 2:
+                # Standard format with 'messages' list
+                references.append([example['messages'][2]['content'].split()])
+            elif isinstance(example, dict) and 'response' in example:
+                # Format with direct 'response' field
+                references.append([example['response'].split()])
+            else:
+                print(f"Warning: Couldn't extract reference from example: {example}")
+                references.append([["placeholder", "reference"]])  # Add placeholder
         
         hypotheses = [response.split() for response in model_responses]
         
@@ -109,7 +112,15 @@ def evaluate_model_bleu(fine_tuned_model, evl_data, get_model_responses_func):
         print(f"BLEU Score (NLTK): {bleu_score:.4f}")
         
         # Prepare data for SacreBLEU
-        references_sacrebleu = [[example['messages'][2]['content']] for example in evl_data]
+        references_sacrebleu = []
+        for example in evl_data:
+            if isinstance(example, dict) and 'messages' in example and len(example['messages']) > 2:
+                references_sacrebleu.append([example['messages'][2]['content']])
+            elif isinstance(example, dict) and 'response' in example:
+                references_sacrebleu.append([example['response']])
+            else:
+                references_sacrebleu.append(["placeholder reference"])
+                
         hypotheses_sacrebleu = model_responses
         
         # Calculate SacreBLEU scores
@@ -117,13 +128,15 @@ def evaluate_model_bleu(fine_tuned_model, evl_data, get_model_responses_func):
         bleu_scores_sacrebleu = []
         
         for i in range(len(hypotheses_sacrebleu)):
-            result = sacrebleu.corpus_score(
-                [hypotheses_sacrebleu[i]], 
-                [[references_sacrebleu[i][0]]]
-            )
-            bleu_scores_sacrebleu.append(result.score)
+            try:
+                result = sacrebleu.corpus_score([hypotheses_sacrebleu[i]], [references_sacrebleu[i]])
+                bleu_scores_sacrebleu.append(result.score)
+            except Exception as e:
+                print(f"Error calculating SacreBLEU for example {i}: {e}")
+                # Use a zero score for failed calculations
+                bleu_scores_sacrebleu.append(0)
         
-        avg_sacrebleu = sum(bleu_scores_sacrebleu) / len(bleu_scores_sacrebleu)
+        avg_sacrebleu = sum(bleu_scores_sacrebleu) / len(bleu_scores_sacrebleu) if bleu_scores_sacrebleu else 0
         print(f"Average SacreBLEU Score: {avg_sacrebleu:.4f}")
         
         return bleu_score, avg_sacrebleu
