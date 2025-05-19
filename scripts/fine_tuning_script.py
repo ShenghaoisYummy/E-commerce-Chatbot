@@ -2,7 +2,6 @@
 # scripts/fine_tuning_script.py
 import sys
 import os
-import torch
 from datetime import datetime
 import json
 import yaml
@@ -20,7 +19,6 @@ from src.fine_tuning import (
     get_training_args,
     get_data_collator,
     update_training_args_from_config,
-    generate_response
 )
 
 # Import utility modules
@@ -32,8 +30,6 @@ from utils.mlflow_utils import (
 )
 from utils.dvc_utils import setup_environment_data
 from utils.yaml_utils import (
-    load_config, 
-    save_yaml_config, 
     flatten_config
 )
 from utils.constants import MODELS_DIR
@@ -215,20 +211,6 @@ def main():
             json.dump(model_info, f)
             
         print("Model location information saved to results/fine_tuned_model_location.json")
-
-        # # Push to Hugging Face Hub
-        # print("Checking HuggingFace Hub config...")
-        # if config.get('hub', {}).get('push_to_hub', False):
-        #     print("Attempting to push model to Hugging Face Hub...")
-        #     try:
-        #         push_to_huggingface_hub(model, tokenizer, config, run_id)
-        #     except Exception as e:
-        #         print(f"Error pushing to Hugging Face Hub: {e}")
-        # else:
-        #     print("Skipping Hugging Face Hub push (not enabled in config)")
-        
-        # print(f"Training completed successfully.")
-        # print(f"MLflow run ID: {run_id}")
 
 if __name__ == "__main__":
     args = parse_args()
