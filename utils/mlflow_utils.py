@@ -63,134 +63,62 @@ def mlflow_setup_tracking(config):
     print(f"MLflow tracking URI: {tracking_uri}")
     return tracking_uri
 
-def mlflow_log_model(model, input_example="### Instruction: What is your return policy?\n\n### Response:"):
-    """
-    Log the model to MLflow with proper signature for text generation.
-    """
-    try:
-        # Skip input example and only use signature for text models
-        signature = ModelSignature(
-            inputs=Schema([ColSpec(type="string", name="inputs")]),
-            outputs=Schema([ColSpec(type="string", name="outputs")])
-        )
-        
-        # Set a timeout for the operation (in seconds)
-        log_success = [False]  # Using a list to make it mutable inside the thread
-        log_error = [None]
-        
-        def log_model_with_timeout():
-            try:
-                # Log the model without input_example to avoid conversion issues
-                mlflow.pytorch.log_model(
-                    model, 
-                    "model", 
-                    signature=signature
-                )
-                log_success[0] = True
-                print("Model logged to MLflow successfully")
-            except Exception as e:
-                log_error[0] = e
-                print(f"Error logging model to MLflow: {e}")
-        
-        # Start the logging in a thread
-        log_thread = threading.Thread(target=log_model_with_timeout)
-        log_thread.daemon = True
-        log_thread.start()
-        
-        # Wait for up to 5 minutes
-        timeout = 300  # seconds
-        start_time = time.time()
-        
-        print(f"Waiting up to {timeout} seconds for model logging to complete...")
-        while log_thread.is_alive() and time.time() - start_time < timeout:
-            time.sleep(5)  # Check every 5 seconds
-            print(f"Still logging model... ({int(time.time() - start_time)} seconds elapsed)")
-        
-        if log_thread.is_alive():
-            # Timeout occurred
-            print(f"Model logging timed out after {timeout} seconds.")
-            print("Continuing with execution. The logging may complete in the background.")
-            return False
-        elif log_success[0]:
-            return True
-        elif log_error[0]:
-            raise log_error[0]
-        
-    except Exception as e:
-        print(f"Error logging model to MLflow: {e}")
-        # Still try to log the model without signature or examples as fallback
-        try:
-            mlflow.pytorch.log_model(model, "model")
-            print("Model logged to MLflow with fallback method")
-            return True
-        except Exception as e2:
-            print(f"Failed to log model with fallback method: {e2}")
-            return False
-
 def log_transformers_model(model, tokenizer, task="text-generation", output_dir=None):
     """
-    Log a transformers model to MLflow with its tokenizer.
-    
-    Args:
-        model: The transformers model to log
-        tokenizer: The tokenizer to log with the model
-        task: The NLP task (e.g., "text-generation")
-        output_dir: Local directory to save the model to as well (optional)
-    
-    Returns:
-        run_id: The MLflow run ID for this model
+    Log PEFT adapter model with detailed progress tracking
     """
-    print("Logging transformers model to MLflow...")
+    print("Starting adapter logging process...")
     
     try:
-        # Log the model and its components
+        # 1. ensure model is a PEFT model
+        if not hasattr(model, 'peft_config'):
+            raise ValueError("Model is not a PEFT model. Cannot save adapter weights.")
+            
+        # 2. save adapter weights
+        print("Saving adapter weights...")
         mlflow.transformers.log_model(
-            transformers_model=model,
-            artifact_path="transformers-model",
-            task=task,
-            components={
+            transformers_model={
+                "model": model,  
                 "tokenizer": tokenizer
-            }
+            },
+            artifact_path="model",
+            task=task
         )
         
-        # Get current run ID
+        # 3. Save tokenizer separately as a dedicated artifact
+        print("Saving tokenizer separately...")
+        import tempfile, glob
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tokenizer.save_pretrained(tmp_dir)
+            
+            for file_path in glob.glob(os.path.join(tmp_dir, "*")):
+                file_name = os.path.basename(file_path)
+                mlflow.log_artifact(file_path, "tokenizer")
+        
+        # 4. record model info
+        print("Logging model info...")
+        model_info = {
+            "base_model": model.config._name_or_path, 
+            "fine_tuned": True,
+            "task": task,
+            "is_adapter": True,
+            "adapter_type": "LoRA",
+            "tokenizer_saved_separately": True
+        }
+        mlflow.log_dict(model_info, "model_info.json")
+
         run_id = mlflow.active_run().info.run_id
-        
-        # If output_dir is provided, also save locally
-        if output_dir:
-            os.makedirs(output_dir, exist_ok=True)
-            mlflow.transformers.save_model(
-                transformers_model=model,
-                path=output_dir,
-                task=task,
-                components={
-                    "tokenizer": tokenizer
-                }
-            )
-            
-            # Store run info
-            model_info = {
-                "mlflow_run_id": run_id,
-                "tracking_uri": mlflow.get_tracking_uri(),
-                "timestamp": datetime.now().strftime('%Y%m%d_%H%M%S')
-            }
-            
-            with open(os.path.join(output_dir, "model_info.json"), "w") as f:
-                json.dump(model_info, f)
-            
-            # Also save to results directory for DVC
-            os.makedirs("results", exist_ok=True)
-            with open("results/model_location.json", "w") as f:
-                json.dump(model_info, f)
-                
-        print(f"Model successfully logged to MLflow with run_id: {run_id}")
+        print(f"Adapter and tokenizer logged successfully. Run ID: {run_id}")
+
         return run_id
-        
+
     except Exception as e:
-        print(f"Error logging transformers model to MLflow: {e}")
+        print(f"\nERROR during adapter logging: {str(e)}")
+        import traceback
+        print(f"Full error traceback:\n{traceback.format_exc()}")
         return None
 
-def load_model_from_dagshub(run_id=None, model_info_path="results/model_location.json"):
+def load_model_from_dagshub(run_id=None, model_info_path="results/fine_tuned_model_location.json"):
     """
     Load a model from DagShub/MLflow.
     

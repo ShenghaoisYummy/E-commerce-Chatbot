@@ -5,16 +5,16 @@ stages:
     deps:
     - path: configs/data_prep_config.yaml
       hash: md5
-      md5: e63838f6cdb1297b2d7638bed8ad6095
-      size: 1724
+      md5: 83db1f223c396ae71aadac2f8b924373
+      size: 1491
     - path: data/raw/bitext-retail-ecommerce-llm-chatbot-training-dataset.csv
       hash: md5
       md5: 6dd684fa00ea6f065b0b7c9375e01675
       size: 42624013
     - path: scripts/data_prep_script.py
       hash: md5
-      md5: a399d24befd07ce475ff7ad76a1d048d
-      size: 4792
+      md5: 9eff00ca0dd5ba07ccb428a0d0951165
+      size: 3607
     - path: src/data_prep.py
       hash: md5
       md5: fcbb3731279b1b77286ada28737710f4
@@ -26,5 +26,67 @@ stages:
     outs:
     - path: data/processed/latest_dataset_ref.json
       hash: md5
-      md5: d6712bfecbc86fec0dada02f437c534b
+      md5: ff983707ad1248a4134b5316e3737390
       size: 225
+  fine_tuning:
+    cmd: python scripts/fine_tuning_script.py  --input-ref data/processed/latest_dataset_ref.json  --output-dir
+      results/  --config params.yaml  --mlflow-uri https://dagshub.com/ShenghaoisYummy/E-commerce-Chatbot.mlflow
+    deps:
+    - path: data/processed/latest_dataset_ref.json
+      hash: md5
+      md5: ff983707ad1248a4134b5316e3737390
+      size: 225
+    - path: params.yaml
+      hash: md5
+      md5: 8ed0172a41a7fec42d3de85f542c94fc
+      size: 1346
+    - path: scripts/fine_tuning_script.py
+      hash: md5
+      md5: 225a5fae0dcd228028cbc870027d0ee7
+      size: 9430
+    - path: src/fine_tuning.py
+      hash: md5
+      md5: ca6e475747f9dcdee4547773e2262966
+      size: 7405
+    params:
+      params.yaml:
+        data:
+          dataset_path: 
+            data/processed/processed_dataset_10rows_small_dataset_for_testing_pipeline_20250502_132555.csv
+          test_size: 0.1
+          seed: 42
+          instruction_column: instruction
+          response_column: response
+        lora:
+          r: 16
+          alpha: 32
+          dropout: 0.1
+          target_modules:
+          - q_proj
+          - v_proj
+          - k_proj
+          - o_proj
+          - gate_proj
+          - up_proj
+          - down_proj
+        model:
+          base_model: EleutherAI/gpt-neo-125m
+          load_in_8bit: false
+        training:
+          epochs: 1
+          batch_size: 1
+          gradient_accumulation_steps: 1
+          learning_rate: 0.0002
+          weight_decay: 0.01
+          warmup_steps: 100
+          max_length: 256
+          fp16: false
+          eval_strategy: epoch
+          save_strategy: epoch
+          save_total_limit: 2
+          load_best_model_at_end: true
+    outs:
+    - path: results/model_location.json
+      hash: md5
+      md5: 089bb841ebb15cb9ad07054006ad4b53
+      size: 255

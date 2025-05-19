@@ -28,7 +28,6 @@ from utils.mlflow_utils import (
     mlflow_log_model_info, 
     mlflow_start_run,
     mlflow_setup_tracking,
-    mlflow_log_model,
     log_transformers_model
 )
 from utils.dvc_utils import setup_environment_data
@@ -37,7 +36,7 @@ from utils.yaml_utils import (
     save_yaml_config, 
     flatten_config
 )
-from utils.constants import DEFAULT_OUTPUT_DIR, MODELS_DIR
+from utils.constants import MODELS_DIR
 from utils.huggingface_utils import push_to_huggingface_hub
 from utils.system_utils import configure_device_settings
 
@@ -49,13 +48,13 @@ print("mlflow")
 load_dotenv()
 
 # Load configuration
-config_path = "/config/params.yaml"
+config_path = "params.yaml"
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Data preprocessing and feature engineering with MLflow logging")
+    parser = argparse.ArgumentParser(description="Fine-tuning script")
     parser.add_argument("--config", type=str, default=config_path, help="Path to YAML config file defining cleaning and feature options")
-    parser.add_argument("--input-path", type=str, default="data/raw/bitext-retail-ecommerce-llm-chatbot-training-dataset.csv", help="Directory containing raw CSV data (expects raw.csv)")
-    parser.add_argument("--output-dir", type=str, default="data/processed", help="Directory to write processed data CSV")
+    parser.add_argument("--input-ref", type=str, default="data/processed/latest_dataset_ref.json", help="reference location to data path")
+    parser.add_argument("--output-dir", type=str, default="results/", help="Directory to write processed data CSV")
     parser.add_argument("--mlflow-uri", type=str, default="", help="MLflow Tracking Server URI")
     return parser.parse_args()
 
@@ -75,35 +74,23 @@ def main():
     # Generate a run ID and set up directories
     run_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     run_name = f"chatbot_finetune_{run_timestamp}"
-    output_dir = config.get('output', {}).get('output_dir', DEFAULT_OUTPUT_DIR)
-    run_output_dir = os.path.join(output_dir, run_timestamp)
+    output_dir = args.output_dir
     
     # Start MLflow run
-    with mlflow_start_run(run_name) as run:
+    with mlflow_start_run() as run:
         run_id = run.info.run_id
         
         # Create necessary directories
-        os.makedirs(run_output_dir, exist_ok=True)
         os.makedirs(MODELS_DIR, exist_ok=True)
         
-        # Save the full configuration with the run (exclude any sensitive data)
-        # Make a copy to avoid modifying the original config
-        safe_config = config.copy()
-        
-        experiment_config_path = os.path.join(run_output_dir, "config.yaml")
-        save_yaml_config(safe_config, experiment_config_path)
-        
-        # Log configuration to MLflow
-        # Use the flatten_config utility to get flattened parameters (from the safe config)
-        flattened_params = flatten_config(safe_config)
+        flattened_params = flatten_config(config)
         mlflow.log_params(flattened_params)
-        mlflow.log_artifact(experiment_config_path)
-        
+
         # Configure device settings
         device_config = configure_device_settings(config)
         
         # Load model and tokenizer
-        model_name = config.get('model', {}).get('base_model', "deepseek-ai/deepseek-coder-1.3b-instruct")
+        model_name = config.get('model', {}).get('base_model', "EleutherAI/gpt-neo-125m")
         print(f"Loading base model: {model_name}")
         model, tokenizer = load_model_and_tokenizer(
             model_name,
@@ -124,11 +111,11 @@ def main():
         # Log model info
         mlflow_log_model_info(model)
         
-        
         # Prepare dataset
+
         # Load dataset reference
         try:
-            with open("data/processed/latest_dataset_ref.json", 'r') as f:
+            with open(args.input_ref, 'r') as f:
                 dataset_info = json.load(f)
         except FileNotFoundError:
             print("File does not exist. Please run the data preprocessing script first.")
@@ -164,7 +151,7 @@ def main():
         
         # Training arguments
         training_args = get_training_args(
-            output_dir=run_output_dir,
+            output_dir=output_dir,
             num_epochs=config.get('training', {}).get('epochs', 3),
             batch_size=config.get('training', {}).get('batch_size', 8),
             gradient_accumulation_steps=config.get('training', {}).get('gradient_accumulation_steps', 4)
@@ -201,71 +188,47 @@ def main():
         print("Logging metrics to MLflow...")
         mlflow.log_metrics({f"train_{k}": v for k, v in metrics.items()})
         mlflow.log_metrics({f"eval_{k}": v for k, v in eval_metrics.items()})
-        
-        # Create results directory if it doesn't exist
-        os.makedirs("results", exist_ok=True)
 
         # Log model to MLflow using transformers-specific logging
         print("Logging model to MLflow using transformers-specific logging...")
-        try:
-            # Log the model with transformers-specific logging
-            model_run_id = log_transformers_model(
-                model=model,
-                tokenizer=tokenizer,
-                task="text-generation",
-                output_dir=os.path.join(MODELS_DIR, f"transformer_model_{run_timestamp}")
-            )
+
+
+        # Log the model with transformers-specific logging
+        model_run_id = log_transformers_model(
+            model=model,
+            tokenizer=tokenizer,
+            task="text-generation",
+            output_dir=os.path.join(MODELS_DIR, f"transformer_model_{run_timestamp}")
+        )
             
             # Save model location information for DVC pipeline
-            model_info = {
-                "mlflow_run_id": model_run_id or run_id,
-                "tracking_uri": mlflow.get_tracking_uri(),
-                "dvc_stage": "fine_tuning",  
-                "timestamp": run_timestamp,
-                "model_name": model_name,
-                "fine_tuned": True
-            }
+        model_info = {
+            "mlflow_run_id": model_run_id or run_id,
+            "tracking_uri": mlflow.get_tracking_uri(),
+            "dvc_stage": "fine_tuning",  
+            "timestamp": run_timestamp,
+            "model_name": model_name,
+            "fine_tuned": True
+        }
             
-            with open("results/model_location.json", "w") as f:
-                json.dump(model_info, f)
-                
-            print("Model location information saved to results/model_location.json")
+        with open(os.path.join(output_dir, "fine_tuned_model_location.json"), "w") as f:
+            json.dump(model_info, f)
             
-        except Exception as e:
-            print(f"Error during transformers model logging to MLflow: {e}")
-            # Fallback to regular PyTorch logging
-            try:
-                mlflow_log_model(model)
-                print("Model logging to MLflow completed using fallback PyTorch method")
-                
-                # Still save the model location info
-                model_info = {
-                    "mlflow_run_id": run_id,
-                    "tracking_uri": mlflow.get_tracking_uri(),
-                    "timestamp": run_timestamp,
-                    "model_name": model_name,
-                    "fine_tuned": True,
-                    "fallback_method": "pytorch"
-                }
-                
-                with open("results/model_location.json", "w") as f:
-                    json.dump(model_info, f)
-            except Exception as e2:
-                print(f"Error during fallback model logging to MLflow: {e2}")
+        print("Model location information saved to results/fine_tuned_model_location.json")
 
-        # Push to Hugging Face Hub
-        print("Checking HuggingFace Hub config...")
-        if config.get('hub', {}).get('push_to_hub', False):
-            print("Attempting to push model to Hugging Face Hub...")
-            try:
-                push_to_huggingface_hub(model, tokenizer, config, run_id)
-            except Exception as e:
-                print(f"Error pushing to Hugging Face Hub: {e}")
-        else:
-            print("Skipping Hugging Face Hub push (not enabled in config)")
+        # # Push to Hugging Face Hub
+        # print("Checking HuggingFace Hub config...")
+        # if config.get('hub', {}).get('push_to_hub', False):
+        #     print("Attempting to push model to Hugging Face Hub...")
+        #     try:
+        #         push_to_huggingface_hub(model, tokenizer, config, run_id)
+        #     except Exception as e:
+        #         print(f"Error pushing to Hugging Face Hub: {e}")
+        # else:
+        #     print("Skipping Hugging Face Hub push (not enabled in config)")
         
-        print(f"Training completed successfully.")
-        print(f"MLflow run ID: {run_id}")
+        # print(f"Training completed successfully.")
+        # print(f"MLflow run ID: {run_id}")
 
 if __name__ == "__main__":
     args = parse_args()

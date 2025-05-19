@@ -14,21 +14,23 @@ stages:
           persist: true
 
   fine_tuning:
-    cmd: python scripts/fine_tuning_script.py
+    cmd: >-
+      python scripts/fine_tuning_script.py 
+      --input-ref data/processed/latest_dataset_ref.json 
+      --output-dir results/ 
+      --config params.yaml 
+      --mlflow-uri https://dagshub.com/ShenghaoisYummy/E-commerce-Chatbot.mlflow
     deps:
       - scripts/fine_tuning_script.py
       - src/fine_tuning.py
-      - configs/base_config.yaml
-      - configs/model_config.yaml
-      - data/processed/processed_dataset_10rows_small_dataset_for_testing_pipeline_20250502_132246.csv
+      - params.yaml
+      - data/processed/latest_dataset_ref.json
     params:
       - model
       - lora
       - training
       - data
     outs:
-      - mlflow/e-commerce-chatbot-finetuning:
-          persist: true
       - results/model_location.json:
           persist: true
 
