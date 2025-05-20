@@ -35,17 +35,20 @@ stages:
           persist: true
 
   evaluation:
-    cmd: python scripts/evaluation_script.py
+      cmd: >-
+      python scripts/evaluation_script.py 
+      --input-ref data/evaluation/evaluation_10rows.csv
+      --model-artifact-path results/model_location.json
+      --output-dir results/evaluations
+      --config params.yaml
+      --mlflow-uri https://dagshub.com/ShenghaoisYummy/E-commerce-Chatbot.mlflow
     deps:
       - scripts/evaluation_script.py
-      - src/fine_tuning.py
-      - configs/base_config.yaml
-      - configs/evaluation_config.yaml
+      - src/evaluation.py
       - data/evaluation/evaluation_10rows.csv
-      - results/model_location.json
+      - results/evaluations
     params:
       - evaluation
-      - mlflow
     metrics:
-      - results/metrics.json:
+      - results/evaluations/metrics.json:
           cache: false

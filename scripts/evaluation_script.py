@@ -12,7 +12,7 @@ from nltk.translate.bleu_score import corpus_bleu, sentence_bleu
 from rouge_score import rouge_scorer
 import nltk
 import json
-
+import argparse
 # Add the project root to the path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -38,6 +38,15 @@ from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Evaluation script")
+    parser.add_argument("--input-ref", type=str, default="data/evaluation/evaluation_10rows.csv", help="reference location to data path")
+    parser.add_argument("--model-artifact-path", type=str, default="results/model_location.json", help="Path to model artifact file")
+    parser.add_argument("--output-dir", type=str, default="results/evaluations", help="Directory to write evaluation results")
+    parser.add_argument("--config", type=str, default="params.yaml", help="Path to YAML config file defining evaluation options")
+    return parser.parse_args()      
 
 # Download NLTK resources if needed
 try:
@@ -325,4 +334,5 @@ def main():
             print(f"{key}: {value:.4f}")
 
 if __name__ == "__main__":
-    main()
+    args = parse_args()
+    main(args)

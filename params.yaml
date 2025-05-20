@@ -50,8 +50,6 @@ data:
 # Evaluation configuration
 evaluation:
   use_dagshub: true
-  model_path: "ShenghaoYummy/145a05ed"
-  eval_dataset_path: "data/evaluation/evaluation_10rows.csv"
   sample_size: 100
   metrics:
     - "bleu"
