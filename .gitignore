@@ -1,6 +1,5 @@
 # DVC controlled files
-results/fine_tuned_model_location.json
-results/evaluations/
+results/
 
 # Model and data artifacts
 *.bin
