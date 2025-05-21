@@ -1,7 +1,6 @@
 # Data processing
 pandas
 numpy
-json
 # scikit-learn==1.0.0
 textblob
 emoji
