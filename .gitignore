@@ -1,12 +1,33 @@
+# DVC controlled files
+results/fine_tuned_model_location.json
+results/evaluations/
+
+# Model and data artifacts
+*.bin
+*.pt
+*.pth
+*.safetensors
+*.ckpt
+
+# MLflow and DVC
 mlflow/
 mlruns/
+.dvc/
+*.dvc
+/data
+
+# Python
 src/__pycache__/
 utils/__pycache__/
 scripts/__pycache__/
-notebooks/
+*.pyc
+__pycache__/
+
+# Environment
 .env
-.DS_Store
-.vscode/
 .env.local
 .env.development.local
 .env.test.local
+.vscode/
+.DS_Store
+notebooks/
