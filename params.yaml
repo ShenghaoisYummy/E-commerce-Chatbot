@@ -50,7 +50,9 @@ data:
 # Evaluation configuration
 evaluation:
   use_dagshub: true
-  sample_size: 100
+  batch_size: 4
+  max_length: 512
+  num_beams: 4
   metrics:
     - "bleu"
     - "rouge"

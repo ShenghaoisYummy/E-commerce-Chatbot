@@ -34,7 +34,6 @@ from utils.mlflow_utils import (
 from utils.yaml_utils import (
     load_config
 )
-from utils.constants import RESULTS_DIR
 from utils.system_utils import configure_device_settings
 
 from dotenv import load_dotenv
@@ -255,49 +254,42 @@ def main(args):
         use_dagshub = config.get('evaluation', {}).get('use_dagshub', True)
         model_location_file = args.model_artifact_path
         
-        if use_dagshub and os.path.exists(model_location_file):
-            try:
-                print("Loading model from DagShub/MLflow...")
-                # Load adapter from DagShub/MLflow
-                model_components = load_model_from_dagshub(model_info_path=model_location_file)
-                adapter_path = model_components["model"]
-                tokenizer = model_components["tokenizer"]
-
-                # Get base model name from config
-                base_model_name = config.get('model', {}).get('base_model')
-                if not base_model_name:
-                    raise ValueError("Base model name not found in config. Please add 'base_model' under 'model' section.")
-
-                # Load base model and integrate adapter
-                try:
-                    print(f"Loading base model: {base_model_name}")
-                    base_model = AutoModelForCausalLM.from_pretrained(
-                        base_model_name,
-                        device_map=device_config["device_map"],
-                        load_in_8bit=device_config["use_8bit"],
-                        torch_dtype=device_config["torch_dtype"]
-                    )
-                    print("Base model loaded successfully")
-                    
-                    print(f"Loading adapter from: {adapter_path}")
-                    model = PeftModel.from_pretrained(base_model, adapter_path)
-                    model.eval()
-                    print("Adapter integrated successfully")
-                except Exception as e:
-                    print(f"Error loading model: {e}")
-                    raise
-
-                # Log the model source
-                with open(model_location_file, "r") as f:
-                    model_info = json.load(f)
-                mlflow.log_param("model_source", "dagshub")
-                mlflow.log_param("model_run_id", model_info.get("mlflow_run_id", "unknown"))
+    if use_dagshub and os.path.exists(model_location_file):
+        try:
+            print("Loading model from DagShub/MLflow...")
+            # Load adapter from DagShub/MLflow
+            model_components = load_model_from_dagshub(model_info_path=model_location_file)
+            
+            # Get base model name from the model info file
+            with open(model_location_file, 'r') as f:
+                model_info = json.load(f)
+                base_model_name = model_info.get('model_name')
+            
+            if not base_model_name:
+                raise ValueError("Base model name not found in model info file")
                 
-                print("Model loaded successfully from DagShub/MLflow")
-            except Exception as e:
-                print(f"Error loading model from DagShub/MLflow: {e}")
-                print("Falling back to specified model path...")
-                use_dagshub = False
+            print(f"Loading base model: {base_model_name}")
+            
+            # The model should already be loaded with the adapter
+            if isinstance(model_components["model"], dict):
+                print("Model components keys:", model_components["model"].keys())
+                model = model_components["model"].get("model")
+                tokenizer = model_components["model"].get("tokenizer")
+            else:
+                model = model_components["model"]
+                tokenizer = model_components["tokenizer"]
+            
+            if model is None:
+                raise ValueError("Failed to load model from artifacts")
+                
+            # Set model to evaluation mode
+            model.eval()
+            print("Model loaded successfully!")
+
+        except Exception as e:
+            print(f"Error loading model from DagShub/MLflow: {str(e)}")
+            print("Falling back to specified model path...")
+            use_dagshub = False
         
         if not use_dagshub:
             # Get model path or name from config

@@ -118,41 +118,42 @@ def log_transformers_model(model, tokenizer, task="text-generation", output_dir=
         print(f"Full error traceback:\n{traceback.format_exc()}")
         return None
 
-def load_model_from_dagshub(run_id=None, model_info_path="results/fine_tuned_model_location.json"):
+def load_model_from_dagshub(model_info_path):
     """
-    Load a model from DagShub/MLflow.
+    Load model and tokenizer from MLflow artifacts
+    """
+    print("Loading model from DagShub/MLflow...")
     
-    Args:
-        run_id: Optional explicit run_id to load
-        model_info_path: Path to the model info JSON file
-        
-    Returns:
-        model_components: Dictionary containing 'model' and 'tokenizer'
-    """
+    # Read model info
+    with open(model_info_path, 'r') as f:
+        model_info = json.load(f)
+    
+    mlflow_run_id = model_info.get("mlflow_run_id")
+    tracking_uri = model_info.get("tracking_uri")
+    
+    # Set MLflow tracking URI
+    mlflow.set_tracking_uri(tracking_uri)
+    print(f"MLflow tracking URI: {tracking_uri}")
+    
     try:
-        # If no run_id provided, try to load from model_info.json
-        if not run_id:
-            if os.path.exists(model_info_path):
-                with open(model_info_path, "r") as f:
-                    model_info = json.load(f)
-                run_id = model_info.get("mlflow_run_id")
-                # If tracking URI is in the file, set it
-                if "tracking_uri" in model_info:
-                    mlflow.set_tracking_uri(model_info["tracking_uri"])
-            else:
-                raise ValueError(f"No run_id provided and {model_info_path} not found")
-        
-        # Construct model URI
-        model_uri = f"runs:/{run_id}/transformers-model"
-        
+        # Load model using the correct artifact path
+        model_uri = f"runs:/{mlflow_run_id}/model"
         print(f"Loading model from MLflow: {model_uri}")
-        print(f"MLflow tracking URI: {mlflow.get_tracking_uri()}")
         
-        # Load the model
-        model_components = mlflow.transformers.load_model(model_uri=model_uri)
+        # Load the model components
+        loaded_artifacts = mlflow.transformers.load_model(
+            model_uri=model_uri,
+            return_type="components"
+        )
         
-        return model_components
+        print("Loaded artifacts keys:", loaded_artifacts.keys())  # Debug print
+        
+        # Return the components directly
+        return {
+            "model": loaded_artifacts,  # Return the entire loaded artifacts
+            "tokenizer": loaded_artifacts.get("tokenizer", None)
+        }
         
     except Exception as e:
-        print(f"Error loading model from MLflow: {e}")
+        print(f"Error loading model from MLflow: {str(e)}")
         raise

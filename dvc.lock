@@ -38,12 +38,12 @@ stages:
       size: 225
     - path: params.yaml
       hash: md5
-      md5: 1e2ac9a58a23db46225a66184f2df339
-      size: 1246
+      md5: 47213aa870d50d8d1eda103d7b9d5081
+      size: 1276
     - path: scripts/fine_tuning_script.py
       hash: md5
-      md5: f5ef9b4156dd509ece7b3c2299e1815c
-      size: 7629
+      md5: acc16bc55e25988aac061a504d0210c6
+      size: 7632
     - path: src/fine_tuning.py
       hash: md5
       md5: ae74d3f95e360ba34734fbd57ccd323d
@@ -88,5 +88,42 @@ stages:
     outs:
     - path: results/fine_tuned_model_location.json
       hash: md5
-      md5: 65525b84654e1de98ec514b7e2f5d376
+      md5: 7df1763e86a2d0dfba444cf45e55b8f8
       size: 255
+  evaluation:
+    cmd: python scripts/evaluation_script.py  --eval-dataset-path data/evaluation/evaluation_10rows.csv
+      --model-artifact-path results/fine_tuned_model_location.json --output-dir results/evaluations
+      --config params.yaml --mlflow-uri https://dagshub.com/ShenghaoisYummy/E-commerce-Chatbot.mlflow
+    deps:
+    - path: data/evaluation/evaluation_10rows.csv
+      hash: md5
+      md5: 37933c0a0eeb62bfc6385a1a6c6f234a
+      size: 927
+    - path: results/fine_tuned_model_location.json
+      hash: md5
+      md5: 7df1763e86a2d0dfba444cf45e55b8f8
+      size: 255
+    - path: scripts/evaluation_script.py
+      hash: md5
+      md5: db6e2b42dbc6df9798c8f24dc18422dd
+      size: 12419
+    - path: src/evaluation.py
+      hash: md5
+      md5: d41d8cd98f00b204e9800998ecf8427e
+      size: 0
+    params:
+      params.yaml:
+        evaluation:
+          use_dagshub: true
+          batch_size: 4
+          max_length: 512
+          num_beams: 4
+          metrics:
+          - bleu
+          - rouge
+    outs:
+    - path: results/evaluations
+      hash: md5
+      md5: bb9baac9e95b3741cc7c72ec45aa6cd8.dir
+      size: 1430
+      nfiles: 2
