@@ -1,49 +1,54 @@
 # Data processing
-pandas
-numpy
+pandas==1.5.3
+numpy==1.24.3
 # scikit-learn==1.0.0
-textblob
-emoji
-contractions
-nltk
-spacy
-symspellpy
+textblob==0.15.3
+emoji==2.8.0
+contractions==0.1.73
+nltk==3.8.1
+spacy==3.7.2
+symspellpy==6.7.7
 
 # Deep learning
-torch
-transformers
-datasets
-sentence-transformers
-peft
-bitsandbytes
+torch==2.0.1
+torchvision==0.15.2
+transformers==4.30.2
+datasets==2.14.5
+sentence-transformers==2.2.2
+peft==0.4.0
+bitsandbytes==0.40.2
 
 # MLOps tools
-mlflow
-dvc[s3]
-dagshub
-torchvision
+mlflow==2.8.1
+dvc[s3]==3.30.3
+dagshub==0.3.9
 # pyyaml==6.0
 
 # HPO
-optuna
-# # AWS integration
+optuna==3.4.0
+
+# AWS integration
 # boto3
 # awscli
 
 # Experiment tracking
-huggingface_hub
+huggingface_hub==0.19.4
 
 # Environment management
-python-dotenv
+python-dotenv==1.0.0
 
 # Visualization
-matplotlib
-seaborn
-plotly
+matplotlib==3.7.3
+seaborn==0.13.0
+plotly==5.18.0
 
 # Notebook dependencies
-ipywidgets
-jupyter
+ipywidgets==8.1.1
+jupyter==1.0.0
 
 # Frontend (if running locally)
-streamlit
+streamlit==1.29.0
+
+# Evaluation
+rouge-score==0.1.2
+accelerate==0.23.0
