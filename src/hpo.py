@@ -8,6 +8,7 @@ from typing import Dict, Any
 from pathlib import Path
 import torch
 import time
+import pandas as pd
 from utils.system_utils import configure_device_settings
 
 
@@ -22,6 +23,7 @@ from src.fine_tuning import (
     update_training_args_from_config
 )
 from transformers import Trainer
+from src.evaluation import evaluate_model
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -40,7 +42,7 @@ def calculate_combined_score(metrics: Dict[str, float]) -> float:
     # Equal weighting between BLEU and ROUGE-L
     return (bleu_score + rouge_score) / 2
 
-def objective(trial: optuna.Trial, base_config: Dict[Any, Any], train_dataset: Any, eval_dataset: Any) -> float:
+def objective(trial: optuna.Trial, base_config: Dict[Any, Any], train_dataset: Any, eval_tokenized_dataset: Any, eval_raw_data: pd.DataFrame) -> float:
     """Optuna objective function for hyperparameter optimization"""
     
     # Define hyperparameter search space
@@ -107,27 +109,39 @@ def objective(trial: optuna.Trial, base_config: Dict[Any, Any], train_dataset: A
             model=model,
             args=training_args,
             train_dataset=train_dataset,
-            eval_dataset=eval_dataset,
+            eval_dataset=eval_tokenized_dataset,
             data_collator=get_data_collator(tokenizer)
         )
         
         # Train model
         trainer.train()
         
-        # Evaluate model
-        metrics = trainer.evaluate()
+        # Use custom evaluation with raw data
+        logger.info(f"Running custom evaluation for trial {trial.number}...")
+        custom_metrics, results_df = evaluate_model(model, tokenizer, eval_raw_data, config)
+        
+        # Save evaluation results
+        results_df.to_csv(f"{output_dir}/evaluation_results.csv", index=False)
         
         # Calculate combined score
-        combined_score = calculate_combined_score(metrics)
+        combined_score = calculate_combined_score(custom_metrics)
+        logger.info(f"Trial {trial.number} completed with score: {combined_score}")
         
         # Log metrics in the parent run
         with mlflow.start_run(run_name=run_name, nested=True):
             mlflow.log_params(trial.params)
             mlflow.log_metrics({
                 'combined_score': combined_score,
-                'bleu4': metrics.get('eval_bleu4', 0),
-                'rouge_l_f': metrics.get('eval_rougeL_fmeasure', 0)
+                'bleu4': custom_metrics.get('bleu4', 0),
+                'rouge_l_f': custom_metrics.get('rougeL_fmeasure', 0)
             })
+            
+            # Log detailed metrics
+            for metric_name, metric_value in custom_metrics.items():
+                mlflow.log_metric(metric_name, metric_value)
+            
+            # Log evaluation results file
+            mlflow.log_artifact(f"{output_dir}/evaluation_results.csv")
         
         return combined_score
         
@@ -135,11 +149,13 @@ def objective(trial: optuna.Trial, base_config: Dict[Any, Any], train_dataset: A
         logger.error(f"Trial {trial.number} failed: {str(e)}")
         raise optuna.TrialPruned()
 
-def run_hpo(train_dataset: Any, eval_dataset: Any, n_trials: int = 20, n_jobs: int = 4) -> Dict[str, Any]:
+def run_hpo(train_dataset: Any, eval_tokenized_dataset: Any, eval_raw_data: pd.DataFrame, n_trials: int = 20, n_jobs: int = 4, config: Dict[Any, Any] = None) -> Dict[str, Any]:
     """Run hyperparameter optimization"""
     
-    # Load config and setup MLflow
-    config = load_config()
+    # Load config if not provided
+    if config is None:
+        config = load_config()
+    
     mlflow_setup_tracking(config)
     
     # Create Optuna study
@@ -155,7 +171,7 @@ def run_hpo(train_dataset: Any, eval_dataset: Any, n_trials: int = 20, n_jobs: i
         try:
             # Run optimization with parallel workers
             study.optimize(
-                lambda trial: objective(trial, config, train_dataset, eval_dataset),
+                lambda trial: objective(trial, config, train_dataset, eval_tokenized_dataset, eval_raw_data),
                 n_trials=n_trials,
                 n_jobs=n_jobs,
                 timeout=None,
@@ -215,13 +231,6 @@ def update_config_with_best_params(best_params: Dict[str, Any]) -> None:
         if param_name in param_mapping:
             section, key = param_mapping[param_name]
             config[section][key] = value
-    
-    # Create a new YAML dumper that preserves the quotes and style
-    class PreserveQuotesDumper(yaml.SafeDumper):
-        def represent_str(self, data):
-            if '\n' in data:
-                return self.represent_scalar('tag:yaml.org,2002:str', data, style='|')
-            return self.represent_scalar('tag:yaml.org,2002:str', data)
     
     # Update only the values in the original content
     for section in config:

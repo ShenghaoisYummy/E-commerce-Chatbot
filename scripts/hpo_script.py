@@ -6,6 +6,7 @@ import sys
 import os
 import json
 import time
+import pandas as pd
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -54,15 +55,19 @@ def main():
         with open(args.train_data, 'r') as f:
             dataset_info = json.load(f)
     except FileNotFoundError:
-        print("File does not exist. Please run the data preprocessing script first.")
-        # You can return, exit, or handle it in another way
+        logger.error("File does not exist. Please run the data preprocessing script first.")
+        sys.exit(1)
     except json.JSONDecodeError:
-        print("File content is not valid JSON. Please check or regenerate the file.")
-        # You can return, exit, or handle it in another way
+        logger.error("File content is not valid JSON. Please check or regenerate the file.")
+        sys.exit(1)
 
     # Use dataset path from the reference
     train_dataset_path = dataset_info["dataset_path"]
-
+    
+    # Load evaluation dataset separately for raw text preservation
+    eval_df = pd.read_csv(args.eval_data)
+    
+    # Tokenize datasets for training
     train_dataset = prepare_dataset(
         train_dataset_path,
         tokenizer,
@@ -72,7 +77,7 @@ def main():
     )
     
     logger.info("Preparing evaluation dataset...")
-    eval_dataset = prepare_dataset(
+    eval_tokenized_dataset = prepare_dataset(
         args.eval_data,
         tokenizer,
         max_length=config['sampling']['sample_size'],
@@ -80,13 +85,18 @@ def main():
         response_column=config['data']['response_column']
     )
     
+    # Set environment variable for tokenizers
+    os.environ["TOKENIZERS_PARALLELISM"] = "false"
+    
     # Run HPO
     logger.info(f"Starting HPO with {args.n_trials} trials and {args.n_jobs} parallel jobs...")
     results = run_hpo(
         train_dataset=train_dataset,
-        eval_dataset=eval_dataset,
+        eval_tokenized_dataset=eval_tokenized_dataset,
+        eval_raw_data=eval_df,
         n_trials=args.n_trials,
-        n_jobs=args.n_jobs
+        n_jobs=args.n_jobs,
+        config=config
     )
     
     if results["best_parameters"] is not None:
