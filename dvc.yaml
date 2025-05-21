@@ -31,14 +31,14 @@ stages:
       - training
       - data
     outs:
-      - results/model_location.json:
+      - results/fine_tuned_model_location.json:
           persist: true
 
   evaluation:
-      cmd: >-
+    cmd: >-
       python scripts/evaluation_script.py 
-      --input-ref data/evaluation/evaluation_10rows.csv
-      --model-artifact-path results/model_location.json
+      --eval-dataset-path data/evaluation/evaluation_10rows.csv
+      --model-artifact-path results/fine_tuned_model_location.json
       --output-dir results/evaluations
       --config params.yaml
       --mlflow-uri https://dagshub.com/ShenghaoisYummy/E-commerce-Chatbot.mlflow
@@ -46,9 +46,8 @@ stages:
       - scripts/evaluation_script.py
       - src/evaluation.py
       - data/evaluation/evaluation_10rows.csv
-      - results/evaluations
+      - results/fine_tuned_model_location.json
     params:
       - evaluation
-    metrics:
-      - results/evaluations/metrics.json:
-          cache: false
+    outs:
+      - results/evaluations

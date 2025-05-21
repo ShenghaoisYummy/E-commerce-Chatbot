@@ -13,6 +13,9 @@ from rouge_score import rouge_scorer
 import nltk
 import json
 import argparse
+from peft import PeftModel
+from transformers import AutoModelForCausalLM
+
 # Add the project root to the path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -39,15 +42,6 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-
-def parse_args():
-    parser = argparse.ArgumentParser(description="Evaluation script")
-    parser.add_argument("--input-ref", type=str, default="data/evaluation/evaluation_10rows.csv", help="reference location to data path")
-    parser.add_argument("--model-artifact-path", type=str, default="results/model_location.json", help="Path to model artifact file")
-    parser.add_argument("--output-dir", type=str, default="results/evaluations", help="Directory to write evaluation results")
-    parser.add_argument("--config", type=str, default="params.yaml", help="Path to YAML config file defining evaluation options")
-    return parser.parse_args()      
-
 # Download NLTK resources if needed
 try:
     nltk.data.find('tokenizers/punkt')
@@ -66,13 +60,13 @@ def simple_tokenize(text):
     # Basic whitespace tokenization
     return text.lower().split()
 
-def calculate_bleu(references, hypotheses):
+def calculate_bleu(references, predictions):
     """
-    Calculate BLEU score for the given references and hypotheses.
+    Calculate BLEU score for the given references and predictions.
     
     Args:
         references: List of reference sentences (tokenized)
-        hypotheses: List of model generated sentences (tokenized)
+        predictions: List of model generated sentences (tokenized)
         
     Returns:
         Dict containing BLEU-1, BLEU-2, BLEU-3, and BLEU-4 scores
@@ -83,22 +77,22 @@ def calculate_bleu(references, hypotheses):
     # Calculate BLEU-1 to BLEU-4
     bleu1 = corpus_bleu(
         references_for_corpus, 
-        hypotheses, 
+        predictions, 
         weights=(1, 0, 0, 0)
     )
     bleu2 = corpus_bleu(
         references_for_corpus, 
-        hypotheses, 
+        predictions, 
         weights=(0.5, 0.5, 0, 0)
     )
     bleu3 = corpus_bleu(
         references_for_corpus, 
-        hypotheses, 
+        predictions, 
         weights=(0.33, 0.33, 0.33, 0)
     )
     bleu4 = corpus_bleu(
         references_for_corpus, 
-        hypotheses, 
+        predictions, 
         weights=(0.25, 0.25, 0.25, 0.25)
     )
     
@@ -109,13 +103,13 @@ def calculate_bleu(references, hypotheses):
         "bleu4": bleu4
     }
 
-def calculate_rouge(references, hypotheses):
+def calculate_rouge(references, predictions):
     """
-    Calculate ROUGE scores for the given references and hypotheses.
+    Calculate ROUGE scores for the given references and predictions.
     
     Args:
         references: List of reference sentences (not tokenized)
-        hypotheses: List of model generated sentences (not tokenized)
+        predictions: List of model generated sentences (not tokenized)
         
     Returns:
         Dict containing ROUGE-1, ROUGE-2, and ROUGE-L scores
@@ -134,7 +128,7 @@ def calculate_rouge(references, hypotheses):
         'rougeL_fmeasure': 0.0
     }
     
-    for ref, hyp in zip(references, hypotheses):
+    for ref, hyp in zip(references, predictions):
         rouge_scores = scorer.score(ref, hyp)
         
         # Accumulate scores
@@ -175,27 +169,27 @@ def evaluate_model(model, tokenizer, test_dataset, config):
     references = test_dataset[config.get('data', {}).get('response_column', 'response')]
     
     # Generate responses
-    hypotheses = []
+    predictions = []
     print(f"Generating responses for {len(instructions)} test examples...")
     for i, instruction in enumerate(instructions):
         if i % 10 == 0:
             print(f"  Progress: {i}/{len(instructions)}")
         response = generate_response(instruction, model, tokenizer)
-        hypotheses.append(response)
+        predictions.append(response)
     
     # Save generations for inspection
     results_df = pd.DataFrame({
         'instruction': instructions,
         'reference': references,
-        'generated': hypotheses
+        'generated': predictions
     })
     
     # Tokenize for BLEU
     tokenized_references = []
-    tokenized_hypotheses = []
+    tokenized_predictions = []
     
     print("Tokenizing text for evaluation...")
-    for ref, hyp in zip(references, hypotheses):
+    for ref, hyp in zip(references, predictions):
         try:
             # Use simple_tokenize instead of nltk.word_tokenize
             tokenized_ref = simple_tokenize(ref)
@@ -211,31 +205,40 @@ def evaluate_model(model, tokenizer, test_dataset, config):
             tokenized_hyp = []
             
         tokenized_references.append(tokenized_ref)
-        tokenized_hypotheses.append(tokenized_hyp)
+        tokenized_predictions.append(tokenized_hyp)
     
     # Calculate metrics
     print("Calculating BLEU scores...")
-    bleu_scores = calculate_bleu(tokenized_references, tokenized_hypotheses)
+    bleu_scores = calculate_bleu(tokenized_references, tokenized_predictions)
     
     print("Calculating ROUGE scores...")
-    rouge_scores = calculate_rouge(references, hypotheses)
+    rouge_scores = calculate_rouge(references, predictions)
     
     # Combine metrics
     metrics = {**bleu_scores, **rouge_scores}
     
     return metrics, results_df
 
-def main():
+def parse_args():
+    parser = argparse.ArgumentParser(description="Evaluation script")
+    parser.add_argument("--eval-dataset-path", type=str, default="data/evaluation/evaluation_10rows.csv", help="reference location to data path")
+    parser.add_argument("--model-artifact-path", type=str, default="results/fine_tuned_model_location.json", help="Path to model artifact file")
+    parser.add_argument("--output-dir", type=str, default="results/evaluations", help="Directory to write evaluation results")
+    parser.add_argument("--config", type=str, default="params.yaml", help="Path to YAML config file defining evaluation options")
+    parser.add_argument("--mlflow-uri", type=str, default="", help="MLflow Tracking Server URI")
+    return parser.parse_args()      
+
+def main(args):
     # Load configuration
     config = load_config()
     
     # Set up MLflow tracking
-    tracking_uri = mlflow_setup_tracking(config)
+    # tracking_uri = mlflow_setup_tracking(config)
     
     # Generate a run ID and set up directories
     run_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     run_name = f"chatbot_evaluation_{run_timestamp}"
-    output_dir = os.path.join(RESULTS_DIR, "evaluations", run_timestamp)
+    output_dir = args.output_dir
     
     # Create necessary directories
     os.makedirs(output_dir, exist_ok=True)
@@ -250,16 +253,40 @@ def main():
         
         # Check if we should use DagShub for model loading
         use_dagshub = config.get('evaluation', {}).get('use_dagshub', True)
-        model_location_file = "results/model_location.json"
+        model_location_file = args.model_artifact_path
         
         if use_dagshub and os.path.exists(model_location_file):
             try:
                 print("Loading model from DagShub/MLflow...")
-                # Load model from DagShub/MLflow
+                # Load adapter from DagShub/MLflow
                 model_components = load_model_from_dagshub(model_info_path=model_location_file)
-                model = model_components["model"]
+                adapter_path = model_components["model"]
                 tokenizer = model_components["tokenizer"]
-                
+
+                # Get base model name from config
+                base_model_name = config.get('model', {}).get('base_model')
+                if not base_model_name:
+                    raise ValueError("Base model name not found in config. Please add 'base_model' under 'model' section.")
+
+                # Load base model and integrate adapter
+                try:
+                    print(f"Loading base model: {base_model_name}")
+                    base_model = AutoModelForCausalLM.from_pretrained(
+                        base_model_name,
+                        device_map=device_config["device_map"],
+                        load_in_8bit=device_config["use_8bit"],
+                        torch_dtype=device_config["torch_dtype"]
+                    )
+                    print("Base model loaded successfully")
+                    
+                    print(f"Loading adapter from: {adapter_path}")
+                    model = PeftModel.from_pretrained(base_model, adapter_path)
+                    model.eval()
+                    print("Adapter integrated successfully")
+                except Exception as e:
+                    print(f"Error loading model: {e}")
+                    raise
+
                 # Log the model source
                 with open(model_location_file, "r") as f:
                     model_info = json.load(f)
@@ -291,7 +318,7 @@ def main():
             mlflow.log_param("model_path", model_name)
         
         # Get evaluation dataset
-        eval_dataset_path = config.get('evaluation', {}).get('eval_dataset_path')
+        eval_dataset_path = args.eval_dataset_path
         if not eval_dataset_path:
             print("Evaluation dataset path not specified, exiting.")
             return
@@ -308,7 +335,7 @@ def main():
         metrics, results_df = evaluate_model(model, tokenizer, test_dataset, config)
         
         # Save metrics to file
-        metrics_file = os.path.join(RESULTS_DIR, "metrics.json")
+        metrics_file = os.path.join(output_dir, "metrics.json")
         with open(metrics_file, 'w') as f:
             json.dump(metrics, f, indent=2)
             

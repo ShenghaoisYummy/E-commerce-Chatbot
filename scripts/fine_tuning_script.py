@@ -54,7 +54,7 @@ def parse_args():
     parser.add_argument("--mlflow-uri", type=str, default="", help="MLflow Tracking Server URI")
     return parser.parse_args()
 
-def main():
+def main(args):
 
     # Load configuration
     with open(config_path, 'r') as config_file:
@@ -214,4 +214,4 @@ def main():
 
 if __name__ == "__main__":
     args = parse_args()
-    main()
+    main(args)

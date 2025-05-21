@@ -1,0 +1,1 @@
+{"mlflow_run_id": "87fc8f8df86a42d4b65ab8cbfec27e76", "tracking_uri": "https://dagshub.com/ShenghaoisYummy/E-commerce-Chatbot.mlflow", "dvc_stage": "fine_tuning", "timestamp": "20250521_100704", "model_name": "EleutherAI/gpt-neo-125m", "fine_tuned": true}
