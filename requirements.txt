@@ -26,9 +26,9 @@ torchvision
 
 # HPO
 optuna
-# AWS integration
-boto3
-awscli
+# # AWS integration
+# boto3
+# awscli
 
 # Experiment tracking
 huggingface_hub
