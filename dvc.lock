@@ -105,12 +105,12 @@ stages:
       size: 255
     - path: scripts/evaluation_script.py
       hash: md5
-      md5: db6e2b42dbc6df9798c8f24dc18422dd
-      size: 12419
+      md5: ea7607970c5ba933c2d7f3e0b5a0aae9
+      size: 7093
     - path: src/evaluation.py
       hash: md5
-      md5: d41d8cd98f00b204e9800998ecf8427e
-      size: 0
+      md5: 6adf159ba610c26943d6a863783fa83a
+      size: 5806
     params:
       params.yaml:
         evaluation:

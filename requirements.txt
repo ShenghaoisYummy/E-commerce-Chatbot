@@ -25,6 +25,8 @@ dagshub==0.2.0
 torchvision
 # pyyaml==6.0
 
+# HPO
+optuna==3.0.0
 # AWS integration
 boto3==1.26.0
 awscli==1.27.0
