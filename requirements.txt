@@ -22,8 +22,11 @@ bitsandbytes>=0.37.1
 mlflow==2.3.0
 dvc[s3]==2.10.0
 dagshub==0.2.0
+torchvision
 # pyyaml==6.0
 
+# HPO
+optuna==3.0.0
 # AWS integration
 boto3==1.26.0
 awscli==1.27.0

@@ -39,3 +39,9 @@ var/
 .idea/
 *.swp
 *.swo
+
+# HPO related
+hpo_checkpoints/
+hpo_results/
+*.hpo.json
+optuna_studies/
