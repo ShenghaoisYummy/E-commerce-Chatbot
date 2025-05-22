@@ -88,21 +88,57 @@ def main(args):
         # Load model and tokenizer
         model_name = config.get('model', {}).get('base_model', "EleutherAI/gpt-neo-125m")
         print(f"Loading base model: {model_name}")
-        model, tokenizer = load_model_and_tokenizer(
-            model_name,
-            load_in_8bit=device_config["use_8bit"],
-            torch_dtype=device_config["torch_dtype"],
-            device_map=device_config["device_map"]
-        )
-        
-        # Setup LoRA
-        lora_config = get_lora_config(
-            r=config.get('lora', {}).get('r', 8),
-            lora_alpha=config.get('lora', {}).get('alpha', 32),
-            lora_dropout=config.get('lora', {}).get('dropout', 0.05),
-            target_modules=config.get('lora', {}).get('target_modules')
-        )
-        model = prepare_model_for_lora(model, lora_config)
+        try:
+            model, tokenizer = load_model_and_tokenizer(
+                model_name,
+                load_in_8bit=device_config["use_8bit"],
+                torch_dtype=device_config["torch_dtype"],
+                device_map=device_config["device_map"]
+            )
+            
+            # Setup LoRA
+            lora_config = get_lora_config(
+                r=config.get('lora', {}).get('r', 8),
+                lora_alpha=config.get('lora', {}).get('alpha', 32),
+                lora_dropout=config.get('lora', {}).get('dropout', 0.05),
+                target_modules=config.get('lora', {}).get('target_modules')
+            )
+            model = prepare_model_for_lora(model, lora_config)
+        except Exception as e:
+            if "libcudart.so" in str(e) and "cannot open shared object file" in str(e):
+                print(f"CUDA library error: {str(e)}")
+                print("Retrying with CPU-only configuration...")
+                # Update device config to use CPU
+                device_config["use_8bit"] = False
+                device_config["use_fp16"] = False
+                device_config["torch_dtype"] = None
+                device_config["device_map"] = "cpu"
+                
+                # Try loading again with CPU settings
+                model, tokenizer = load_model_and_tokenizer(
+                    model_name,
+                    load_in_8bit=False,
+                    torch_dtype=None,
+                    device_map="cpu"
+                )
+                
+                # Setup LoRA for CPU
+                lora_config = get_lora_config(
+                    r=config.get('lora', {}).get('r', 8),
+                    lora_alpha=config.get('lora', {}).get('alpha', 32),
+                    lora_dropout=config.get('lora', {}).get('dropout', 0.05),
+                    target_modules=config.get('lora', {}).get('target_modules')
+                )
+                # Set inference_mode to False for training
+                lora_config.inference_mode = False
+                model = prepare_model_for_lora(model, lora_config)
+                
+                # Update training args for CPU
+                config['training']['fp16'] = False
+                config['training']['bf16'] = False
+            else:
+                # Re-raise if not a CUDA library error
+                raise
         
         # Log model info
         mlflow_log_model_info(model)
@@ -155,6 +191,21 @@ def main(args):
         
         # Update training arguments from config
         training_args = update_training_args_from_config(training_args, config)
+        
+        # If using CPU, adjust training arguments accordingly
+        if device_config["device_map"] == "cpu":
+            print("Using CPU for training, adjusting training parameters...")
+            training_args.fp16 = False
+            training_args.bf16 = False
+            training_args.gradient_checkpointing = False
+            # Use smaller batch size if on CPU
+            if training_args.per_device_train_batch_size > 2:
+                print(f"Reducing batch size from {training_args.per_device_train_batch_size} to 2 for CPU training")
+                training_args.per_device_train_batch_size = 2
+                training_args.per_device_eval_batch_size = 2
+            # Increase gradient accumulation to compensate for smaller batch size
+            training_args.gradient_accumulation_steps = max(4, training_args.gradient_accumulation_steps * 2)
+            print(f"Increased gradient accumulation steps to {training_args.gradient_accumulation_steps}")
         
         # Data collator
         data_collator = get_data_collator(tokenizer)

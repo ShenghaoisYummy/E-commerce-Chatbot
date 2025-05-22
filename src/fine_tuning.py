@@ -109,7 +109,21 @@ def prepare_model_for_lora(model, lora_config):
             model = prepare_model_for_kbit_training(model)
         
         # Apply LoRA
-        model = get_peft_model(model, lora_config)
+        try:
+            model = get_peft_model(model, lora_config)
+        except OSError as e:
+            if "libcudart.so" in str(e) and "cannot open shared object file" in str(e):
+                print("CUDA library error detected. Moving model to CPU and retrying...")
+                # Move model to CPU
+                model = model.cpu()
+                # Force CPU device map in config
+                lora_config.inference_mode = False  # Ensure we're in training mode
+                # Retry with CPU
+                model = get_peft_model(model, lora_config)
+                print("Successfully created PEFT model on CPU")
+                return model
+            else:
+                raise
         
         # Optimize memory usage
         if hasattr(model, "enable_input_require_grads"):
@@ -117,27 +131,50 @@ def prepare_model_for_lora(model, lora_config):
         
         # Handle moving model to proper device
         if torch.cuda.is_available():
-            # Enable gradient checkpointing if available
-            if hasattr(model, "gradient_checkpointing_enable"):
-                model.gradient_checkpointing_enable()
-            
-            # Move model to device, handling meta tensors properly
-            if is_meta:
-                try:
-                    model = model.to_empty(device="cuda")
-                except AttributeError:
-                    # If to_empty not available, try alternative approach
-                    print("to_empty not available, using manual device setting")
-                    for param in model.parameters():
-                        if hasattr(param, "device") and param.device.type == "meta":
-                            # Try to initialize meta tensor on device
-                            param.data = torch.zeros_like(param, device="cuda")
-            elif str(current_device) != "cuda":
-                model = model.to("cuda")
+            try:
+                # Enable gradient checkpointing if available
+                if hasattr(model, "gradient_checkpointing_enable"):
+                    model.gradient_checkpointing_enable()
+                
+                # Move model to device, handling meta tensors properly
+                if is_meta:
+                    try:
+                        model = model.to_empty(device="cuda")
+                    except AttributeError:
+                        # If to_empty not available, try alternative approach
+                        print("to_empty not available, using manual device setting")
+                        for param in model.parameters():
+                            if hasattr(param, "device") and param.device.type == "meta":
+                                # Try to initialize meta tensor on device
+                                param.data = torch.zeros_like(param, device="cuda")
+                elif str(current_device) != "cuda":
+                    model = model.to("cuda")
+            except RuntimeError as e:
+                if "CUDA" in str(e) or "cuda" in str(e).lower():
+                    print(f"CUDA error when moving model: {e}")
+                    print("Falling back to CPU")
+                    model = model.cpu()
+                else:
+                    raise
         
         return model
     except Exception as e:
         print(f"Error preparing model for LoRA: {e}")
+        
+        # Try to recover by using CPU-only mode
+        if "CUDA" in str(e) or "cuda" in str(e).lower() or "libcudart" in str(e):
+            print("CUDA error detected, attempting to recover with CPU-only mode...")
+            try:
+                # Move model to CPU
+                model = model.cpu()
+                # Apply LoRA
+                lora_config.inference_mode = False  # Ensure we're in training mode
+                model = get_peft_model(model, lora_config)
+                print("Successfully created PEFT model on CPU")
+                return model
+            except Exception as recovery_error:
+                print(f"Recovery attempt failed: {recovery_error}")
+        
         raise
 
 def prepare_dataset(data_path, tokenizer, max_length=512, instruction_column="instruction", response_column="response"):
