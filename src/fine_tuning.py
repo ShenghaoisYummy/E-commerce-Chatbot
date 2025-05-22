@@ -270,11 +270,11 @@ def generate_response(instruction, model, tokenizer, max_length=150):
     Generate a response for a given instruction using the fine-tuned model.
     """
     input_text = f"### Instruction: {instruction}\n\n### Response:"
-    inputs = tokenizer(input_text, return_tensors="pt").to(model.device)
+    inputs = tokenizer(input_text, return_tensors="pt").to_empty(device=model.device)
     
     with torch.no_grad():
         outputs = model.generate(
-            inputs["input_ids"],
+            input_ids=inputs["input_ids"],
             max_new_tokens=max_length,
             temperature=0.7,
             top_p=0.9,
