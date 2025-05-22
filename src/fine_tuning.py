@@ -154,7 +154,10 @@ def prepare_model_for_lora(model, lora_config):
                 if "CUDA" in str(e) or "cuda" in str(e).lower():
                     print(f"CUDA error when moving model: {e}")
                     print("Falling back to CPU")
-                    model = model.cpu()
+                    if hasattr(model, 'is_meta') and model.is_meta:
+                        model = model.to_empty(device="cpu")
+                    else:
+                        model = model.cpu()
                 else:
                     raise
         
@@ -167,9 +170,12 @@ def prepare_model_for_lora(model, lora_config):
             print("CUDA error detected, attempting to recover with CPU-only mode...")
             try:
                 # Move model to CPU
-                model = model.cpu()
+                if hasattr(model, 'is_meta') and model.is_meta:
+                    model = model.to_empty(device="cpu")
+                else:
+                    model = model.cpu()
                 # Apply LoRA
-                lora_config.inference_mode = False  # Ensure we're in training mode
+                lora_config.inference_mode = False
                 model = get_peft_model(model, lora_config)
                 print("Successfully created PEFT model on CPU")
                 return model
@@ -270,7 +276,7 @@ def generate_response(instruction, model, tokenizer, max_length=150):
     Generate a response for a given instruction using the fine-tuned model.
     """
     input_text = f"### Instruction: {instruction}\n\n### Response:"
-    inputs = tokenizer(input_text, return_tensors="pt").to_empty(device=model.device)
+    inputs = tokenizer(input_text, return_tensors="pt").to(model.device)
     
     with torch.no_grad():
         outputs = model.generate(
