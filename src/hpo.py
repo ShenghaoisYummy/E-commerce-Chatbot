@@ -75,9 +75,6 @@ def objective(trial: optuna.Trial, base_config: Dict[Any, Any], train_dataset: A
     os.makedirs(output_dir, exist_ok=True)
     
     try:
-        # Configure device settings
-        device_settings = configure_device_settings(config)
-
         # Load model and tokenizer with proper device settings
         model, tokenizer = load_model_and_tokenizer(
             config['model']['base_model'],
@@ -86,21 +83,37 @@ def objective(trial: optuna.Trial, base_config: Dict[Any, Any], train_dataset: A
             device_map=device_settings['device_map']
         )
         
-        # Move model to CPU first before LoRA preparation
-        model = model.cpu()
-
-        # Prepare model with LoRA
-        lora_config = get_lora_config(
-            r=config['lora']['r'],
-            lora_alpha=config['lora']['alpha'],
-            lora_dropout=config['lora']['dropout'],
-            target_modules=config['lora']['target_modules']
-        )
-        model = prepare_model_for_lora(model, lora_config)
-        
-        # Now move model to appropriate device
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        model = model.to(device)
+        # Prepare model for LoRA without moving to CPU first
+        try:
+            # Prepare model with LoRA
+            lora_config = get_lora_config(
+                r=config['lora']['r'],
+                lora_alpha=config['lora']['alpha'],
+                lora_dropout=config['lora']['dropout'],
+                target_modules=config['lora']['target_modules']
+            )
+            model = prepare_model_for_lora(model, lora_config)
+            
+            # Now move model to appropriate device if needed
+            if hasattr(model, "is_meta") and model.is_meta:
+                model = model.to_empty(device="cuda" if torch.cuda.is_available() else "cpu")
+            else:
+                device = "cuda" if torch.cuda.is_available() else "cpu"
+                model = model.to(device)
+        except RuntimeError as e:
+            if "Cannot copy out of meta tensor" in str(e):
+                logger.warning("Meta tensor detected, using to_empty() instead")
+                model = model.to_empty(device="cuda" if torch.cuda.is_available() else "cpu")
+                # Retry LoRA preparation
+                lora_config = get_lora_config(
+                    r=config['lora']['r'],
+                    lora_alpha=config['lora']['alpha'],
+                    lora_dropout=config['lora']['dropout'],
+                    target_modules=config['lora']['target_modules']
+                )
+                model = prepare_model_for_lora(model, lora_config)
+            else:
+                raise
         
         # Get training arguments
         training_args = get_training_args(
@@ -157,6 +170,15 @@ def objective(trial: optuna.Trial, base_config: Dict[Any, Any], train_dataset: A
         
     except Exception as e:
         logger.error(f"Trial {trial.number} failed: {str(e)}")
+        
+        # Check for CUDA library errors
+        if "libcudart.so" in str(e) and "cannot open shared object file" in str(e):
+            logger.error("CUDA runtime library error detected. This may be due to a mismatch between installed CUDA version and PyTorch requirements.")
+            logger.error("Suggestions:")
+            logger.error("1. Ensure CUDA drivers are properly installed")
+            logger.error("2. Try installing the correct CUDA toolkit version")
+            logger.error("3. Consider setting 'use_8bit: false' and 'use_fp16: false' in params.yaml to run on CPU")
+        
         raise optuna.TrialPruned()
 
 def run_hpo(train_dataset: Any, eval_tokenized_dataset: Any, eval_raw_data: pd.DataFrame, n_trials: int = 20, n_jobs: int = 4, config: Dict[Any, Any] = None) -> Dict[str, Any]:
@@ -167,6 +189,19 @@ def run_hpo(train_dataset: Any, eval_tokenized_dataset: Any, eval_raw_data: pd.D
         config = load_config()
     
     mlflow_setup_tracking(config)
+    
+    # Check for CUDA availability and show warning if issues detected
+    try:
+        if torch.cuda.is_available():
+            # Test CUDA functionality
+            logger.info(f"CUDA is available. Device count: {torch.cuda.device_count()}")
+            logger.info(f"Current CUDA device: {torch.cuda.current_device()}")
+            logger.info(f"Device name: {torch.cuda.get_device_name(0)}")
+        else:
+            logger.warning("CUDA is not available. Training will be slower on CPU.")
+    except Exception as e:
+        logger.warning(f"Error checking CUDA availability: {str(e)}")
+        logger.warning("This may indicate issues with CUDA libraries. Attempting to continue...")
     
     # Create Optuna study
     study_name = f"chatbot_hpo_{int(time.time())}"

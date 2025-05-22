@@ -31,41 +31,80 @@ def load_model_and_tokenizer(model_name, load_in_8bit=False, torch_dtype=torch.f
     """
     Load pretrained model and tokenizer with optimized GPU settings.
     """
-    # Configure quantization if using 8-bit
-    if load_in_8bit:
-        quantization_config = BitsAndBytesConfig(
-            load_in_8bit=True,
-            llm_int8_threshold=6.0,
-            llm_int8_has_fp16_weight=False
+    try:
+        # Check if CUDA is actually available despite torch saying it is
+        cuda_working = False
+        if torch.cuda.is_available():
+            try:
+                # Test CUDA by creating a small tensor
+                test_tensor = torch.zeros(1, device="cuda")
+                cuda_working = True
+                del test_tensor  # Clean up
+            except Exception as e:
+                print(f"CUDA reported as available but failed in testing: {e}")
+                print("Falling back to CPU")
+                device_map = "cpu"
+                load_in_8bit = False
+                torch_dtype = torch.float32
+        
+        # Configure quantization if using 8-bit
+        if load_in_8bit and cuda_working:
+            quantization_config = BitsAndBytesConfig(
+                load_in_8bit=True,
+                llm_int8_threshold=6.0,
+                llm_int8_has_fp16_weight=False
+            )
+        else:
+            quantization_config = None
+        
+        # Load model with optimized settings
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name,
+            quantization_config=quantization_config,
+            torch_dtype=torch_dtype,
+            device_map=device_map,
+            use_cache=False if device_map == "cpu" else True,
+            low_cpu_mem_usage=True
         )
-    else:
-        quantization_config = None
-    
-    # Load model with optimized settings
-    model = AutoModelForCausalLM.from_pretrained(
-        model_name,
-        quantization_config=quantization_config,
-        torch_dtype=torch_dtype,
-        device_map=device_map,
-        use_cache=False if device_map == "cpu" else True,
-        low_cpu_mem_usage=True
-    )
-    
-    # Load tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    tokenizer.pad_token = tokenizer.eos_token
-    
-    return model, tokenizer
+        
+        # Load tokenizer
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        tokenizer.pad_token = tokenizer.eos_token
+        
+        return model, tokenizer
+    except Exception as e:
+        # Handle specific CUDA errors
+        error_msg = str(e)
+        if "libcudart.so" in error_msg and "cannot open shared object file" in error_msg:
+            print("CUDA runtime library error detected. Falling back to CPU.")
+            # Retry loading on CPU
+            return load_model_and_tokenizer(model_name, load_in_8bit=False, 
+                                           torch_dtype=torch.float32, device_map="cpu")
+        else:
+            # Re-raise other errors
+            raise
 
 def prepare_model_for_lora(model, lora_config):
     """
     Prepare model for LoRA fine-tuning with GPU optimization.
     """
     try:
-        # Get current device
-        current_device = next(model.parameters()).device
+        # Handle meta tensors properly
+        is_meta = False
+        try:
+            current_device = next(model.parameters()).device
+            # Check if model is using meta tensors
+            is_meta = getattr(model, "is_meta", False) or hasattr(next(model.parameters()), "is_meta")
+        except Exception as e:
+            # If we can't get parameters, it might be a meta tensor model
+            if "Cannot access data pointer of Tensor that doesn't have storage" in str(e):
+                is_meta = True
+                current_device = "meta"
+            else:
+                print(f"Warning when checking device: {e}")
+                current_device = "cpu"
         
-        # Prepare model for LoRA
+        # Prepare model for quantization if needed
         if getattr(model, "is_loaded_in_8bit", False):
             model = prepare_model_for_kbit_training(model)
         
@@ -76,14 +115,25 @@ def prepare_model_for_lora(model, lora_config):
         if hasattr(model, "enable_input_require_grads"):
             model.enable_input_require_grads()
         
+        # Handle moving model to proper device
         if torch.cuda.is_available():
             # Enable gradient checkpointing if available
             if hasattr(model, "gradient_checkpointing_enable"):
                 model.gradient_checkpointing_enable()
             
-            # Move model back to original device if it was on GPU
-            if str(current_device).startswith("cuda"):
-                model = model.to(current_device)
+            # Move model to device, handling meta tensors properly
+            if is_meta:
+                try:
+                    model = model.to_empty(device="cuda")
+                except AttributeError:
+                    # If to_empty not available, try alternative approach
+                    print("to_empty not available, using manual device setting")
+                    for param in model.parameters():
+                        if hasattr(param, "device") and param.device.type == "meta":
+                            # Try to initialize meta tensor on device
+                            param.data = torch.zeros_like(param, device="cuda")
+            elif str(current_device) != "cuda":
+                model = model.to("cuda")
         
         return model
     except Exception as e:
