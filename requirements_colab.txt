@@ -37,8 +37,8 @@ seaborn==0.12.2
 plotly==5.15.0
 
 # Notebook dependencies
-ipywidgets==8.0.6
-jupyter==1.0.0
+ipywidgets>=7.5.1,<8.0.0
+notebook>=6.0.0
 tqdm==4.65.0
 
 # Frontend
