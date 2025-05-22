@@ -1,26 +1,26 @@
 # Data processing
-pandas>=1.3.5,<1.6.0
-numpy>=1.21.0,<2.0.0
+pandas>=1.3.5
+numpy>=1.21.0
 # scikit-learn==1.0.0
 textblob>=0.15.3
 emoji>=2.2.0
 contractions>=0.1.72
 nltk>=3.7.0
-spacy>=3.4.0,<3.7.0
+spacy>=3.4.0
 symspellpy>=6.7.0
 
 # Deep learning
-torch>=2.0.0,<2.1.0
-torchvision>=0.15.0,<0.16.0
-transformers>=4.28.0,<4.31.0
-datasets>=2.10.0,<2.15.0
+torch>=2.0.0
+torchvision>=0.15.0
+transformers>=4.28.0
+datasets>=2.10.0
 sentence-transformers>=2.2.0
-peft>=0.3.0,<0.5.0
-bitsandbytes>=0.39.0,<0.41.0
+peft>=0.3.0
+bitsandbytes>=0.39.0
 
 # MLOps tools
 mlflow>=2.6.0
-dvc[s3]>=2.45.0,<3.0.0
+dvc[s3]>=2.45.0
 dagshub>=0.3.0
 # pyyaml==6.0
 
@@ -38,17 +38,17 @@ huggingface_hub>=0.15.0,<0.17.0
 python-dotenv>=1.0.0
 
 # Visualization
-matplotlib>=3.6.0,<3.8.0
-seaborn>=0.12.0,<0.13.0
-plotly>=5.13.0,<5.16.0
+matplotlib>=3.6.0
+seaborn>=0.12.0
+plotly>=5.13.0
 
 # Notebook dependencies
-ipywidgets>=8.0.0,<8.1.0
+ipywidgets>=8.0.0
 jupyter>=1.0.0
 
 # Frontend (if running locally)
-streamlit>=1.22.0,<1.25.0
+streamlit>=1.22.0
 
 # Evaluation
 rouge-score>=0.1.2
-accelerate>=0.19.0,<0.21.0
+accelerate>=0.19.0
