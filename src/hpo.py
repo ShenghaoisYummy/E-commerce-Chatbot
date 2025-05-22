@@ -96,14 +96,29 @@ def objective(trial: optuna.Trial, base_config: Dict[Any, Any], train_dataset: A
             
             # Now move model to appropriate device if needed
             target_device = "cuda" if torch.cuda.is_available() else "cpu"
-            if hasattr(model, "is_meta") and model.is_meta:
-                model = model.to_empty(device=target_device)
-            elif str(next(model.parameters()).device) != target_device:
-                model = model.to(target_device)
+            
+            # Function to safely move model to device
+            def safe_move_to_device(model, target_device):
+                try:
+                    if hasattr(model, "is_meta") and model.is_meta:
+                        return model.to_empty(device=target_device)
+                    else:
+                        current_device = next(model.parameters()).device
+                        if str(current_device) != target_device:
+                            return model.to(target_device)
+                    return model
+                except Exception as e:
+                    if "Cannot copy out of meta tensor" in str(e):
+                        return model.to_empty(device=target_device)
+                    raise
+            
+            model = safe_move_to_device(model, target_device)
         except RuntimeError as e:
             if "Cannot copy out of meta tensor" in str(e):
                 logger.warning("Meta tensor detected, using to_empty() instead")
-                model = model.to_empty(device="cuda" if torch.cuda.is_available() else "cpu")
+                target_device = "cuda" if torch.cuda.is_available() else "cpu"
+                model = safe_move_to_device(model, target_device)
+                
                 # Retry LoRA preparation
                 lora_config = get_lora_config(
                     r=config['lora']['r'],
@@ -112,6 +127,7 @@ def objective(trial: optuna.Trial, base_config: Dict[Any, Any], train_dataset: A
                     target_modules=config['lora']['target_modules']
                 )
                 model = prepare_model_for_lora(model, lora_config)
+                model = safe_move_to_device(model, target_device)
             else:
                 raise
         
