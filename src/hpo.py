@@ -98,8 +98,7 @@ def objective(trial: optuna.Trial, base_config: Dict[Any, Any], train_dataset: A
             if hasattr(model, "is_meta") and model.is_meta:
                 model = model.to_empty(device="cuda" if torch.cuda.is_available() else "cpu")
             else:
-                device = "cuda" if torch.cuda.is_available() else "cpu"
-                model = model.to(device)
+                model = model.to_empty(device="cuda" if torch.cuda.is_available() else "cpu")
         except RuntimeError as e:
             if "Cannot copy out of meta tensor" in str(e):
                 logger.warning("Meta tensor detected, using to_empty() instead")
