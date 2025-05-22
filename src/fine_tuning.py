@@ -66,8 +66,8 @@ def load_model_and_tokenizer(model_name, load_in_8bit=False, torch_dtype=torch.f
             use_cache=False if device_map == "cpu" else True,
             low_cpu_mem_usage=True
         )
-        model = model.to("cuda" if torch.cuda.is_available() else "cpu")
-        
+        model = model.to_empty(device="cuda" if torch.cuda.is_available() else "cpu")
+
         # Load tokenizer
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         tokenizer.pad_token = tokenizer.eos_token
@@ -149,7 +149,7 @@ def prepare_model_for_lora(model, lora_config):
                                 # Try to initialize meta tensor on device
                                 param.data = torch.zeros_like(param, device="cuda")
                 elif str(current_device) != "cuda":
-                    model = model.to("cuda")
+                    model = model.to_empty(device="cuda")
             except RuntimeError as e:
                 if "CUDA" in str(e) or "cuda" in str(e).lower():
                     print(f"CUDA error when moving model: {e}")
