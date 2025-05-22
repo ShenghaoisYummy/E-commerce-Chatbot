@@ -75,6 +75,9 @@ def objective(trial: optuna.Trial, base_config: Dict[Any, Any], train_dataset: A
     os.makedirs(output_dir, exist_ok=True)
     
     try:
+        # Configure device settings
+        device_settings = configure_device_settings(config)
+
         # Load model and tokenizer with proper device settings
         model, tokenizer = load_model_and_tokenizer(
             config['model']['base_model'],
@@ -83,6 +86,9 @@ def objective(trial: optuna.Trial, base_config: Dict[Any, Any], train_dataset: A
             device_map=device_settings['device_map']
         )
         
+        # Move model to CPU first before LoRA preparation
+        model = model.cpu()
+
         # Prepare model with LoRA
         lora_config = get_lora_config(
             r=config['lora']['r'],
@@ -91,6 +97,10 @@ def objective(trial: optuna.Trial, base_config: Dict[Any, Any], train_dataset: A
             target_modules=config['lora']['target_modules']
         )
         model = prepare_model_for_lora(model, lora_config)
+        
+        # Now move model to appropriate device
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        model = model.to(device)
         
         # Get training arguments
         training_args = get_training_args(
