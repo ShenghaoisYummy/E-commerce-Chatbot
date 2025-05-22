@@ -27,10 +27,11 @@ def get_lora_config(r=8, lora_alpha=32, lora_dropout=0.05, target_modules=None):
         target_modules=target_modules
     )
 
-def load_model_and_tokenizer(model_name, load_in_8bit=True, torch_dtype=torch.float16, device_map="auto"):
+def load_model_and_tokenizer(model_name, load_in_8bit=False, torch_dtype=torch.float32, device_map="auto"):
     """
-    Load pretrained model and tokenizer.
+    Load pretrained model and tokenizer with optimized GPU settings.
     """
+    # Configure quantization if using 8-bit
     if load_in_8bit:
         quantization_config = BitsAndBytesConfig(
             load_in_8bit=True,
@@ -39,14 +40,18 @@ def load_model_and_tokenizer(model_name, load_in_8bit=True, torch_dtype=torch.fl
         )
     else:
         quantization_config = None
-        
+    
+    # Load model with optimized settings
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
         quantization_config=quantization_config,
         torch_dtype=torch_dtype,
-        device_map=device_map
+        device_map=device_map,
+        use_cache=False if device_map == "cpu" else True,
+        low_cpu_mem_usage=True
     )
     
+    # Load tokenizer
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     tokenizer.pad_token = tokenizer.eos_token
     
@@ -54,20 +59,36 @@ def load_model_and_tokenizer(model_name, load_in_8bit=True, torch_dtype=torch.fl
 
 def prepare_model_for_lora(model, lora_config):
     """
-    Prepare model for LoRA fine-tuning.
+    Prepare model for LoRA fine-tuning with GPU optimization.
     """
     try:
-        # For 8-bit models, we need special preparation
+        # Get current device
+        current_device = next(model.parameters()).device
+        
+        # Prepare model for LoRA
         if getattr(model, "is_loaded_in_8bit", False):
             model = prepare_model_for_kbit_training(model)
         
+        # Apply LoRA
         model = get_peft_model(model, lora_config)
+        
+        # Optimize memory usage
+        if hasattr(model, "enable_input_require_grads"):
+            model.enable_input_require_grads()
+        
+        if torch.cuda.is_available():
+            # Enable gradient checkpointing if available
+            if hasattr(model, "gradient_checkpointing_enable"):
+                model.gradient_checkpointing_enable()
+            
+            # Move model back to original device if it was on GPU
+            if str(current_device).startswith("cuda"):
+                model = model.to(current_device)
+        
         return model
     except Exception as e:
         print(f"Error preparing model for LoRA: {e}")
-        # Fall back to standard preparation if kbit preparation fails
-        model = get_peft_model(model, lora_config)
-        return model
+        raise
 
 def prepare_dataset(data_path, tokenizer, max_length=512, instruction_column="instruction", response_column="response"):
     """
@@ -128,7 +149,7 @@ def prepare_dataset(data_path, tokenizer, max_length=512, instruction_column="in
 
 def get_training_args(output_dir, num_epochs=3, batch_size=8, gradient_accumulation_steps=4):
     """
-    Create training arguments.
+    Create training arguments with GPU optimization.
     """
     return TrainingArguments(
         output_dir=output_dir,
@@ -144,7 +165,16 @@ def get_training_args(output_dir, num_epochs=3, batch_size=8, gradient_accumulat
         save_strategy="epoch",
         save_total_limit=2,
         load_best_model_at_end=True,
-        fp16=False,
+        # GPU optimization settings
+        fp16=torch.cuda.is_available(),  # Enable fp16 if GPU available
+        bf16=False,  # Disable bfloat16 by default
+        gradient_checkpointing=True,  # Enable gradient checkpointing
+        optim="adamw_torch",  # Use AdamW optimizer
+        learning_rate=2e-4,
+        max_grad_norm=1.0,  # Gradient clipping
+        # Memory optimization
+        dataloader_num_workers=4 if torch.cuda.is_available() else 0,
+        dataloader_pin_memory=torch.cuda.is_available(),
     )
 
 def generate_response(instruction, model, tokenizer, max_length=150):

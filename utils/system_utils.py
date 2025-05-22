@@ -1,67 +1,67 @@
 import os
 import torch
 import subprocess
+from typing import Dict, Any
 
-def configure_device_settings(config):
+def get_gpu_memory() -> int:
+    """Get available GPU memory in GB"""
+    if torch.cuda.is_available():
+        gpu = torch.cuda.current_device()
+        props = torch.cuda.get_device_properties(gpu)
+        return props.total_memory / 1024**3  # Convert to GB
+    return 0
+
+def configure_device_settings(config: Dict[str, Any]) -> Dict[str, Any]:
     """
     Configure device settings based on hardware and user configuration.
     """
-    # Check if we're in Colab
-    is_colab = 'COLAB_GPU' in os.environ
+    # Get model device settings from config
+    device_config = config.get('model', {}).get('device', {})
+    use_gpu = device_config.get('use_gpu', True)
+    precision = device_config.get('precision', 'float32')
+    device_map = device_config.get('device_map', 'auto')
     
-    # Choose appropriate dtype based on device and config
-    use_8bit = config.get('model', {}).get('load_in_8bit', False)
-    use_fp16 = config.get('training', {}).get('fp16', False)
+    # Check GPU availability
+    gpu_available = torch.cuda.is_available()
+    if gpu_available:
+        gpu_name = torch.cuda.get_device_name(0)
+        gpu_memory = get_gpu_memory()
+        print(f"GPU detected: {gpu_name} with {gpu_memory:.2f}GB memory")
     
-    # Force simpler configuration for Colab
-    if is_colab:
-        print("Google Colab environment detected, using simplified configuration")
-        device_map = "auto"
-        torch_dtype = torch.float32
-        use_8bit = False
-        use_fp16 = False
-    else:
-        # Check if we're on Mac with MPS
-        is_mps_available = hasattr(torch, 'mps') and torch.backends.mps.is_available()
-        try_cpu = os.environ.get("USE_CPU", "0") == "1"
+    # Determine device settings
+    if use_gpu and gpu_available:
+        print("Using GPU for training")
+        if device_map == "auto":
+            device_map = "cuda:0"
         
-        if try_cpu:
-            print("Using CPU as requested by environment variable USE_CPU=1")
-            device_map = "cpu"
-            torch_dtype = torch.float32
-            use_8bit = False
+        # Set dtype based on precision and GPU capabilities
+        if precision == "float16" and torch.cuda.is_available():
+            torch_dtype = torch.float16
+            use_fp16 = True
+        elif precision == "bfloat16" and torch.cuda.is_bf16_supported():
+            torch_dtype = torch.bfloat16
             use_fp16 = False
-        elif is_mps_available:
-            print("MPS (Apple Silicon) device detected, adapting configuration...")
-            # Try to get system info
-            try:
-                total_ram = subprocess.check_output(['sysctl', '-n', 'hw.memsize']).strip()
-                total_ram_gb = int(total_ram) / (1024**3)
-                print(f"System has approximately {total_ram_gb:.2f} GB RAM")
-                
-                # If system has less than 32GB RAM, use CPU
-                if total_ram_gb < 32:
-                    print("System has less than 32GB RAM, using CPU instead of MPS for stability")
-                    device_map = "cpu"
-                else:
-                    device_map = "mps"
-            except:
-                # If we can't get system info, default to MPS
-                device_map = "mps"
-            
-            # Use float32 on MPS/CPU as it's more stable
-            torch_dtype = torch.float32
-            use_8bit = False  # Disable 8-bit on MPS
-            use_fp16 = False  # Disable fp16 on MPS
         else:
-            device_map = "auto"
-            torch_dtype = torch.float16 if use_fp16 else torch.float32
+            torch_dtype = torch.float32
+            use_fp16 = False
+            
+        # Enable 8-bit quantization if specified and enough GPU memory
+        use_8bit = config.get('model', {}).get('load_in_8bit', False)
+        if use_8bit and gpu_memory < 8:  # Disable 8-bit if less than 8GB VRAM
+            print("Warning: Insufficient GPU memory for 8-bit quantization, disabling")
+            use_8bit = False
+    else:
+        print("Using CPU for training")
+        device_map = "cpu"
+        torch_dtype = torch.float32
+        use_fp16 = False
+        use_8bit = False
     
-    print(f"Using configuration: 8-bit={use_8bit}, fp16={use_fp16}, dtype={torch_dtype}, device_map={device_map}")
+    print(f"Using configuration: device={device_map}, dtype={torch_dtype}, 8-bit={use_8bit}, fp16={use_fp16}")
     
     return {
         "device_map": device_map,
         "torch_dtype": torch_dtype,
         "use_8bit": use_8bit,
         "use_fp16": use_fp16
-    } 
+    }

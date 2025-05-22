@@ -9,6 +9,10 @@ sampling:
 model:
   base_model: "EleutherAI/gpt-neo-125m"
   load_in_8bit: false
+  device:
+    use_gpu: true # Enable GPU usage
+    precision: "float16" # Can be float32, float16, or bfloat16
+    device_map: "auto" # Can be "auto", "balanced", "sequential", or specific device like "cuda:0"
 
 # LoRA configuration
 lora:
@@ -33,7 +37,8 @@ training:
   weight_decay: 0.01
   warmup_steps: 100
   max_length: 256
-  fp16: false
+  fp16: true # Enable mixed precision training
+  bf16: false # Disable bfloat16 training
   eval_strategy: "epoch"
   save_strategy: "epoch"
   save_total_limit: 2
