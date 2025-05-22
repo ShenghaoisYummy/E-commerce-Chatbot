@@ -57,16 +57,17 @@ def load_model_and_tokenizer(model_name, load_in_8bit=False, torch_dtype=torch.f
         else:
             quantization_config = None
         
-        # Load model with optimized settings
+        # Always load model to meta device first to prevent device copy issues
         model = AutoModelForCausalLM.from_pretrained(
             model_name,
             quantization_config=quantization_config,
             torch_dtype=torch_dtype,
-            device_map="cpu",
+            device_map="meta",  # Always load to meta first
             use_cache=False if device_map == "cpu" else True,
             low_cpu_mem_usage=True
         )
-        model = model.to_empty(device="cuda" if torch.cuda.is_available() else "cpu")
+        
+        # No device transfers yet - this happens after LoRA
 
         # Load tokenizer
         tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -90,6 +91,18 @@ def prepare_model_for_lora(model, lora_config):
     Prepare model for LoRA fine-tuning with GPU optimization.
     """
     try:
+        # Always ensure model is on meta device to start
+        if not (hasattr(model, "is_meta") and model.is_meta):
+            try:
+                # Get current device to check if it's already on meta
+                current_device = str(next(model.parameters()).device)
+                if current_device != "meta" and "meta" not in current_device:
+                    # Try to get a fresh model on meta device
+                    print("Model not on meta device, using cautious approach")
+                    # We don't move the model here, as we'll handle this after LoRA
+            except Exception as e:
+                print(f"Error checking model device: {e}")
+        
         # Handle meta tensors properly
         is_meta = False
         try:

@@ -75,15 +75,18 @@ def objective(trial: optuna.Trial, base_config: Dict[Any, Any], train_dataset: A
     os.makedirs(output_dir, exist_ok=True)
     
     try:
+        # Override device map to always use meta for initial loading
+        device_settings['device_map'] = "meta"
+        
         # Load model and tokenizer with proper device settings
         model, tokenizer = load_model_and_tokenizer(
             config['model']['base_model'],
             load_in_8bit=device_settings['use_8bit'],
             torch_dtype=device_settings['torch_dtype'],
-            device_map=device_settings['device_map']
+            device_map=device_settings['device_map']  # Always meta
         )
         
-        # Prepare model for LoRA without moving to CPU first
+        # Prepare model for LoRA
         try:
             # Prepare model with LoRA
             lora_config = get_lora_config(
@@ -94,42 +97,13 @@ def objective(trial: optuna.Trial, base_config: Dict[Any, Any], train_dataset: A
             )
             model = prepare_model_for_lora(model, lora_config)
             
-            # Now move model to appropriate device if needed
+            # Move the model to the actual device AFTER LoRA preparation
             target_device = "cuda" if torch.cuda.is_available() else "cpu"
+            model = model.to_empty(device=target_device)
             
-            # Function to safely move model to device
-            def safe_move_to_device(model, target_device):
-                try:
-                    if hasattr(model, "is_meta") and model.is_meta:
-                        return model.to_empty(device=target_device)
-                    else:
-                        current_device = next(model.parameters()).device
-                        if str(current_device) != target_device:
-                            return model.to(target_device)
-                    return model
-                except Exception as e:
-                    if "Cannot copy out of meta tensor" in str(e):
-                        return model.to_empty(device=target_device)
-                    raise
-            
-            model = safe_move_to_device(model, target_device)
-        except RuntimeError as e:
-            if "Cannot copy out of meta tensor" in str(e):
-                logger.warning("Meta tensor detected, using to_empty() instead")
-                target_device = "cuda" if torch.cuda.is_available() else "cpu"
-                model = safe_move_to_device(model, target_device)
-                
-                # Retry LoRA preparation
-                lora_config = get_lora_config(
-                    r=config['lora']['r'],
-                    lora_alpha=config['lora']['alpha'],
-                    lora_dropout=config['lora']['dropout'],
-                    target_modules=config['lora']['target_modules']
-                )
-                model = prepare_model_for_lora(model, lora_config)
-                model = safe_move_to_device(model, target_device)
-            else:
-                raise
+        except Exception as e:
+            logger.error(f"Error preparing model or moving to device: {str(e)}")
+            raise optuna.TrialPruned()
         
         # Get training arguments
         training_args = get_training_args(
@@ -227,16 +201,29 @@ def run_hpo(train_dataset: Any, eval_tokenized_dataset: Any, eval_raw_data: pd.D
         pruner=optuna.pruners.MedianPruner()
     )
     
+    # Define a safe wrapper for the objective function
+    def safe_objective(trial, config, train_dataset, eval_tokenized_dataset, eval_raw_data):
+        try:
+            return objective(trial, config, train_dataset, eval_tokenized_dataset, eval_raw_data)
+        except Exception as e:
+            logger.error(f"Trial {trial.number} failed with error: {str(e)}")
+            if "Cannot copy out of meta tensor" in str(e):
+                logger.error("Meta tensor error detected. This is likely a device transfer issue.")
+                logger.error("Recommendations:")
+                logger.error("1. Set device_map='meta' when loading models")
+                logger.error("2. Use to_empty() for meta tensors")
+                logger.error("3. Reduce batch size or model size if memory is an issue")
+            return float('-inf')  # Return worst possible score
+    
     # Start parent MLflow run
     with mlflow.start_run(run_name="hpo_experiment") as parent_run:
         try:
             # Run optimization with parallel workers
             study.optimize(
-                lambda trial: objective(trial, config, train_dataset, eval_tokenized_dataset, eval_raw_data),
+                lambda trial: safe_objective(trial, config, train_dataset, eval_tokenized_dataset, eval_raw_data),
                 n_trials=n_trials,
                 n_jobs=n_jobs,
-                timeout=None,
-                catch=(Exception,)
+                timeout=None
             )
             
             completed_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
