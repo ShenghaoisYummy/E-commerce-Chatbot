@@ -30,7 +30,7 @@ lora:
 
 # Training configuration
 training:
-  epochs: 1
+  epochs: 10
   batch_size: 1
   gradient_accumulation_steps: 1
   learning_rate: 2.0e-4

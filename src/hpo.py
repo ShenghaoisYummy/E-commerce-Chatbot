@@ -53,7 +53,7 @@ def objective(trial: optuna.Trial, base_config: Dict[Any, Any], train_dataset: A
             'dropout': trial.suggest_float('lora_dropout', 0.05, 0.2)
         },
         'training': {
-            'learning_rate': trial.suggest_float('learning_rate', 1e-5, 1e-3, log=True),
+            'learning_rate': trial.suggest_float('learning_rate', 1e-5, 5e-5, log=True),
             'weight_decay': trial.suggest_float('weight_decay', 1e-6, 1e-4, log=True),
             'batch_size': trial.suggest_int('batch_size', 1, 4),
             'gradient_accumulation_steps': trial.suggest_int('gradient_accumulation_steps', 1, 4),
