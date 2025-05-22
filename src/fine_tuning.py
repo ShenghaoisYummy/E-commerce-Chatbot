@@ -62,10 +62,11 @@ def load_model_and_tokenizer(model_name, load_in_8bit=False, torch_dtype=torch.f
             model_name,
             quantization_config=quantization_config,
             torch_dtype=torch_dtype,
-            device_map=device_map,
+            device_map="cpu",
             use_cache=False if device_map == "cpu" else True,
             low_cpu_mem_usage=True
         )
+        model = model.to("cuda" if torch.cuda.is_available() else "cpu")
         
         # Load tokenizer
         tokenizer = AutoTokenizer.from_pretrained(model_name)
