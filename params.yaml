@@ -12,7 +12,7 @@ model:
   device:
     use_gpu: true # Enable GPU usage
     precision: "float16" # Can be float32, float16, or bfloat16
-    device_map: "auto" # Can be "auto", "balanced", "sequential", or specific device like "cuda:0"
+    device_map: "cpu" # Can be "auto", "balanced", "sequential", or specific device like "cuda:0"
 
 # LoRA configuration
 lora:
