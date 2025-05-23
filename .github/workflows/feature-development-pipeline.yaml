@@ -10,7 +10,7 @@ on:
       force_run:
         description: "Force run even if branch is main/master"
         required: false
-        default: "false"
+        default: false
         type: boolean
 
 env:
