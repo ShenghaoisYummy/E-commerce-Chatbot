@@ -60,12 +60,12 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Cache pip dependencies
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
@@ -86,8 +86,10 @@ jobs:
         run: |
           # Set up DVC remote credentials if needed
           # Add your S3/remote storage credentials here
-          dvc remote modify origin --local access_key_id ${{ secrets.AWS_ACCESS_KEY_ID || secrets.DVC_ACCESS_KEY_ID }}
-          dvc remote modify origin --local secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY || secrets.DVC_SECRET_ACCESS_KEY }}
+          if [ -n "${{ secrets.AWS_ACCESS_KEY_ID }}" ]; then
+            dvc remote modify origin --local access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }}
+            dvc remote modify origin --local secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          fi
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -122,8 +124,8 @@ jobs:
             --config params.yaml \
             --train-data data/processed/latest_dataset_ref.json \
             --eval-data data/evaluation/evaluation_10rows.csv \
-            --n-trials 10 \
-            --n-jobs 2 \
+            --n-trials 5 \
+            --n-jobs 1 \
             --mlflow-uri ${{ env.MLFLOW_TRACKING_URI }}
           echo "HPO completed"
 
@@ -214,7 +216,7 @@ jobs:
           fi
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: always()
         with:
           name: pipeline-outputs-${{ needs.setup.outputs.branch_name }}
@@ -232,4 +234,4 @@ jobs:
       - name: Cleanup workspace
         run: |
           echo "Pipeline completed for branch: ${{ needs.setup.outputs.branch_name }}"
-          echo "Status: ${{ job.status }}"
+          echo "Status: ${{ needs.feature-pipeline.result }}"
