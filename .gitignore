@@ -1,6 +1,5 @@
 # DVC controlled files
 results/
-
 # Model and data artifacts
 *.bin
 *.pt

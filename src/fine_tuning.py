@@ -47,33 +47,33 @@ def load_model_and_tokenizer(model_name, load_in_8bit=False, torch_dtype=torch.f
                 load_in_8bit = False
                 torch_dtype = torch.float32
         
-        # Configure quantization if using 8-bit
+    # Configure quantization if using 8-bit
         if load_in_8bit and cuda_working:
-            quantization_config = BitsAndBytesConfig(
-                load_in_8bit=True,
-                llm_int8_threshold=6.0,
-                llm_int8_has_fp16_weight=False
-            )
-        else:
-            quantization_config = None
-        
-        # Always load model to meta device first to prevent device copy issues
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            quantization_config=quantization_config,
-            torch_dtype=torch_dtype,
-            device_map="meta",  # Always load to meta first
-            use_cache=False if device_map == "cpu" else True,
-            low_cpu_mem_usage=True
+        quantization_config = BitsAndBytesConfig(
+            load_in_8bit=True,
+            llm_int8_threshold=6.0,
+            llm_int8_has_fp16_weight=False
         )
+    else:
+        quantization_config = None
+    
+        # Always load model to meta device first to prevent device copy issues
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name,
+        quantization_config=quantization_config,
+        torch_dtype=torch_dtype,
+            device_map="meta",  # Always load to meta first
+        use_cache=False if device_map == "cpu" else True,
+        low_cpu_mem_usage=True
+    )
         
         # No device transfers yet - this happens after LoRA
-
-        # Load tokenizer
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
-        tokenizer.pad_token = tokenizer.eos_token
-        
-        return model, tokenizer
+    
+    # Load tokenizer
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    tokenizer.pad_token = tokenizer.eos_token
+    
+    return model, tokenizer
     except Exception as e:
         # Handle specific CUDA errors
         error_msg = str(e)
@@ -106,7 +106,7 @@ def prepare_model_for_lora(model, lora_config):
         # Handle meta tensors properly
         is_meta = False
         try:
-            current_device = next(model.parameters()).device
+        current_device = next(model.parameters()).device
             # Check if model is using meta tensors
             is_meta = getattr(model, "is_meta", False) or hasattr(next(model.parameters()), "is_meta")
         except Exception as e:
@@ -133,7 +133,7 @@ def prepare_model_for_lora(model, lora_config):
                 # Force CPU device map in config
                 lora_config.inference_mode = False  # Ensure we're in training mode
                 # Retry with CPU
-                model = get_peft_model(model, lora_config)
+        model = get_peft_model(model, lora_config)
                 print("Successfully created PEFT model on CPU")
                 return model
             else:
@@ -146,10 +146,10 @@ def prepare_model_for_lora(model, lora_config):
         # Handle moving model to proper device
         if torch.cuda.is_available():
             try:
-                # Enable gradient checkpointing if available
-                if hasattr(model, "gradient_checkpointing_enable"):
-                    model.gradient_checkpointing_enable()
-                
+            # Enable gradient checkpointing if available
+            if hasattr(model, "gradient_checkpointing_enable"):
+                model.gradient_checkpointing_enable()
+            
                 # Move model to device, handling meta tensors properly
                 if is_meta:
                     try:
