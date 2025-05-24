@@ -12,9 +12,9 @@ def get_gpu_memory() -> int:
             del test_tensor  # Clean up
             
             # Now get memory info
-        gpu = torch.cuda.current_device()
-        props = torch.cuda.get_device_properties(gpu)
-        return props.total_memory / 1024**3  # Convert to GB
+            gpu = torch.cuda.current_device()
+            props = torch.cuda.get_device_properties(gpu)
+            return props.total_memory / 1024**3  # Convert to GB
         except Exception as e:
             print(f"Error getting GPU memory: {e}")
             return 0
@@ -73,9 +73,9 @@ def configure_device_settings(config: Dict[str, Any]) -> Dict[str, Any]:
             cuda_libraries_available = check_cuda_libraries()
             
             # Get GPU information
-        gpu_name = torch.cuda.get_device_name(0)
-        gpu_memory = get_gpu_memory()
-        print(f"GPU detected: {gpu_name} with {gpu_memory:.2f}GB memory")
+            gpu_name = torch.cuda.get_device_name(0)
+            gpu_memory = get_gpu_memory()
+            print(f"GPU detected: {gpu_name} with {gpu_memory:.2f}GB memory")
             
             if not cuda_libraries_available:
                 print("Warning: CUDA libraries may be missing or incompatible")
