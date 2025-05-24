@@ -17,8 +17,8 @@ stages:
       size: 3607
     - path: src/data_prep.py
       hash: md5
-      md5: fcbb3731279b1b77286ada28737710f4
-      size: 8729
+      md5: 2a87db5428fc20001e99942c090a11ef
+      size: 9374
     params:
       params.yaml:
         sampling.sample_description: small_dataset_for_testing_pipeline
@@ -26,7 +26,7 @@ stages:
     outs:
     - path: data/processed/latest_dataset_ref.json
       hash: md5
-      md5: ff983707ad1248a4134b5316e3737390
+      md5: c53c6754883d5100de3ba759d1579eed
       size: 225
   fine_tuning:
     cmd: python scripts/fine_tuning_script.py  --input-ref data/processed/latest_dataset_ref.json  --output-dir
@@ -34,20 +34,20 @@ stages:
     deps:
     - path: data/processed/latest_dataset_ref.json
       hash: md5
-      md5: ff983707ad1248a4134b5316e3737390
+      md5: c53c6754883d5100de3ba759d1579eed
       size: 225
     - path: params.yaml
       hash: md5
-      md5: 47213aa870d50d8d1eda103d7b9d5081
-      size: 1276
+      md5: 94323888b97843b6f42f4a3f89d2240a
+      size: 1575
     - path: scripts/fine_tuning_script.py
       hash: md5
-      md5: acc16bc55e25988aac061a504d0210c6
-      size: 7632
+      md5: 020c5835a8e1d6a08f9667ea7ce9ece3
+      size: 11776
     - path: src/fine_tuning.py
       hash: md5
-      md5: ae74d3f95e360ba34734fbd57ccd323d
-      size: 7364
+      md5: a42603df7ca64ce40debb2a558568488
+      size: 16439
     params:
       params.yaml:
         data:
@@ -59,8 +59,8 @@ stages:
           response_column: response
         lora:
           r: 16
-          alpha: 32
-          dropout: 0.1
+          alpha: 56
+          dropout: 0.1810942182773847
           target_modules:
           - q_proj
           - v_proj
@@ -72,15 +72,20 @@ stages:
         model:
           base_model: EleutherAI/gpt-neo-125m
           load_in_8bit: false
+          device:
+            use_gpu: true
+            precision: float16
+            device_map: cpu
         training:
-          epochs: 1
-          batch_size: 1
+          epochs: 3
+          batch_size: 4
           gradient_accumulation_steps: 1
           learning_rate: 0.0002
-          weight_decay: 0.01
-          warmup_steps: 100
-          max_length: 256
-          fp16: false
+          weight_decay: 1.6036757518568726e-05
+          warmup_steps: 135
+          max_length: 512
+          fp16: true
+          bf16: false
           eval_strategy: epoch
           save_strategy: epoch
           save_total_limit: 2
@@ -88,7 +93,7 @@ stages:
     outs:
     - path: results/fine_tuned_model_location.json
       hash: md5
-      md5: 7df1763e86a2d0dfba444cf45e55b8f8
+      md5: fcce55e70bb6222860d3030612d15e72
       size: 255
   evaluation:
     cmd: python scripts/evaluation_script.py  --eval-dataset-path data/evaluation/evaluation_10rows.csv
@@ -101,7 +106,7 @@ stages:
       size: 927
     - path: results/fine_tuned_model_location.json
       hash: md5
-      md5: 7df1763e86a2d0dfba444cf45e55b8f8
+      md5: fcce55e70bb6222860d3030612d15e72
       size: 255
     - path: scripts/evaluation_script.py
       hash: md5
@@ -124,6 +129,6 @@ stages:
     outs:
     - path: results/evaluations
       hash: md5
-      md5: bb9baac9e95b3741cc7c72ec45aa6cd8.dir
-      size: 1430
+      md5: 0fefea300370e7f472a037210aeb711b.dir
+      size: 1237
       nfiles: 2
