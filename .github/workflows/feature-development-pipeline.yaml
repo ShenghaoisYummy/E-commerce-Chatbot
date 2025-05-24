@@ -87,8 +87,8 @@ jobs:
           # Set up DVC remote credentials if needed
           # Add your S3/remote storage credentials here
           if [ -n "${{ secrets.AWS_ACCESS_KEY_ID }}" ]; then
-            dvc remote modify origin --local access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }}
-            dvc remote modify origin --local secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+            dvc remote modify storage --local access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }}
+            dvc remote modify storage --local secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           fi
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
