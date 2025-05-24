@@ -143,12 +143,12 @@ class EcommerceDataProcessor:
                 # Get run info for reference
                 run_id = mlflow.active_run().info.run_id
                 
-            # Return run information
-            return {
-                "mlflow_run_id": run_id,
-                "tracking_uri": mlflow.get_tracking_uri(),
-                "dataset_path": dataset_path
-            }
+        # Return run information
+        return {
+            "mlflow_run_id": run_id,
+            "tracking_uri": mlflow.get_tracking_uri(),
+            "dataset_path": dataset_path
+        }
 
     def preprocess(self) -> pd.DataFrame:
         """
