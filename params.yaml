@@ -3,11 +3,11 @@
 # Data preprocessing parameters
 sampling:
   sample_size: 10
-  sample_description: "small_dataset_for_testing_pipeline"
+  sample_description: small_dataset_for_testing_pipeline
 
 # Model configuration
 model:
-  base_model: "EleutherAI/gpt-neo-125m"
+  base_model: EleutherAI/gpt-neo-125m
   load_in_8bit: false
   device:
     use_gpu: true # Enable GPU usage
@@ -17,8 +17,8 @@ model:
 # LoRA configuration
 lora:
   r: 16
-  alpha: 32
-  dropout: 0.1
+  alpha: 56
+  dropout: 0.1810942182773847
   target_modules:
     - "q_proj"
     - "v_proj"
@@ -31,26 +31,26 @@ lora:
 # Training configuration
 training:
   epochs: 3
-  batch_size: 1
+  batch_size: 4
   gradient_accumulation_steps: 1
   learning_rate: 2.0e-4
-  weight_decay: 0.01
-  warmup_steps: 100
-  max_length: 256
+  weight_decay: 1.6036757518568726e-05
+  warmup_steps: 135
+  max_length: 512
   fp16: true # Enable mixed precision training
   bf16: false # Disable bfloat16 training
-  eval_strategy: "epoch"
-  save_strategy: "epoch"
+  eval_strategy: epoch
+  save_strategy: epoch
   save_total_limit: 2
   load_best_model_at_end: true
 
 # Data configuration
 data:
-  dataset_path: "data/processed/processed_dataset_10rows_small_dataset_for_testing_pipeline_20250502_132555.csv"
+  dataset_path: data/processed/processed_dataset_10rows_small_dataset_for_testing_pipeline_20250502_132555.csv
   test_size: 0.1
   seed: 42
-  instruction_column: "instruction"
-  response_column: "response"
+  instruction_column: instruction
+  response_column: response
 
 # Evaluation configuration
 evaluation:
@@ -64,5 +64,5 @@ evaluation:
 
 # MLflow configuration
 mlflow:
-  tracking_uri: "https://dagshub.com/ShenghaoisYummy/E-commerce-Chatbot.mlflow"
-  experiment_name: "ecommerce-chatbot-evaluation"
+  tracking_uri: https://dagshub.com/ShenghaoisYummy/E-commerce-Chatbot.mlflow
+  experiment_name: ecommerce-chatbot-evaluation
