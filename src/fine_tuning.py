@@ -286,20 +286,81 @@ def generate_response(instruction, model, tokenizer, max_length=150):
     """
     Generate a response for a given instruction using the fine-tuned model.
     """
+    # Ensure tokenizer has proper pad token
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+        
     input_text = f"### Instruction: {instruction}\n\n### Response:"
-    inputs = tokenizer(input_text, return_tensors="pt").to(model.device)
+    inputs = tokenizer(
+        input_text, 
+        return_tensors="pt", 
+        padding=True, 
+        truncation=True, 
+        max_length=512
+    ).to(model.device)
     
-    with torch.no_grad():
-        outputs = model.generate(
-            input_ids=inputs["input_ids"],
-            max_new_tokens=max_length,
-            temperature=0.7,
-            top_p=0.9,
-            do_sample=True
-        )
+    # Ensure model is in eval mode
+    model.eval()
     
-    response = tokenizer.decode(outputs[0], skip_special_tokens=True)
-    return response.split("### Response:")[1].strip()
+    try:
+        with torch.no_grad():
+            outputs = model.generate(
+                input_ids=inputs["input_ids"],
+                attention_mask=inputs["attention_mask"],
+                max_new_tokens=max_length,
+                temperature=0.8,  # Slightly higher temperature for stability
+                top_p=0.9,
+                top_k=50,  # Add top_k sampling for more stability
+                do_sample=True,
+                pad_token_id=tokenizer.pad_token_id,
+                eos_token_id=tokenizer.eos_token_id,
+                repetition_penalty=1.1,  # Reduce repetition
+                num_return_sequences=1,
+                # Add these for numerical stability
+                output_scores=False,
+                return_dict_in_generate=False
+            )
+        
+        response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+        
+        # Extract only the response part
+        if "### Response:" in response:
+            response_part = response.split("### Response:")[1].strip()
+        else:
+            response_part = response.strip()
+            
+        return response_part
+        
+    except RuntimeError as e:
+        if "probability tensor contains" in str(e):
+            print(f"Generation failed due to numerical instability: {e}")
+            print("Falling back to greedy decoding...")
+            # Fallback to greedy decoding (no sampling)
+            try:
+                with torch.no_grad():
+                    outputs = model.generate(
+                        input_ids=inputs["input_ids"],
+                        attention_mask=inputs["attention_mask"],
+                        max_new_tokens=min(max_length, 50),  # Shorter for safety
+                        do_sample=False,  # Greedy decoding
+                        pad_token_id=tokenizer.pad_token_id,
+                        eos_token_id=tokenizer.eos_token_id,
+                        num_return_sequences=1
+                    )
+                
+                response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+                if "### Response:" in response:
+                    response_part = response.split("### Response:")[1].strip()
+                else:
+                    response_part = response.strip()
+                    
+                return response_part
+                
+            except Exception as fallback_error:
+                print(f"Fallback generation also failed: {fallback_error}")
+                return "[Generation failed due to model instability]"
+        else:
+            raise
 
 def get_data_collator(tokenizer):
     """
