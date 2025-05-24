@@ -88,58 +88,67 @@ class EcommerceDataProcessor:
         import json
         from datetime import datetime
         
-        # Configure MLflow tracking URI (use your existing setup)
-        mlflow.set_tracking_uri("https://dagshub.com/ShenghaoisYummy/E-commerce-Chatbot.mlflow")
+        # Configure MLflow tracking URI from environment or use default
+        tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", "https://dagshub.com/ShenghaoisYummy/E-commerce-Chatbot.mlflow")
+        mlflow.set_tracking_uri(tracking_uri)
+        
+        # Set up authentication if credentials are available
+        mlflow_username = os.environ.get("MLFLOW_TRACKING_USERNAME")
+        mlflow_password = os.environ.get("MLFLOW_TRACKING_PASSWORD")
+        
+        if mlflow_username and mlflow_password:
+            os.environ["MLFLOW_TRACKING_USERNAME"] = mlflow_username
+            os.environ["MLFLOW_TRACKING_PASSWORD"] = mlflow_password
         
         # Set experiment for datasets specifically
         mlflow.set_experiment("dataset_versions")
         
         # Start MLflow run
         with mlflow.start_run(run_name=f"dataset_{datetime.now().strftime('%Y%m%d_%H%M%S')}"):
-            # Log dataset parameters
-            mlflow.log_param("sample_size", sample_size)
-            mlflow.log_param("sample_description", sample_description)
-            mlflow.log_param("filename", os.path.basename(dataset_path))
-            mlflow.log_param("row_count", len(df))
-            mlflow.log_param("column_count", len(df.columns))
-            
-            # Log dataset statistics
-            for column in df.select_dtypes(include=['number']).columns:
-                mlflow.log_metric(f"mean_{column}", df[column].mean())
-                mlflow.log_metric(f"std_{column}", df[column].std())
-            
-            # Log dataset profile summary
-            try:
-                from pandas_profiling import ProfileReport
-                profile = ProfileReport(df, minimal=True, title="Dataset Profile")
-                profile_path = os.path.splitext(dataset_path)[0] + "_profile.html"
-                profile.to_file(profile_path)
-                mlflow.log_artifact(profile_path)
-            except ImportError:
-                pass  # Skip if pandas-profiling not available
-            
-            # Log the dataset file as an artifact
-            mlflow.log_artifact(dataset_path)
-            
-            # Log dataset schema
-            schema = {
-                "columns": list(df.columns),
-                "dtypes": {col: str(df[col].dtype) for col in df.columns}
+                # Log dataset parameters
+                mlflow.log_param("sample_size", sample_size)
+                mlflow.log_param("sample_description", sample_description)
+                mlflow.log_param("filename", os.path.basename(dataset_path))
+                mlflow.log_param("row_count", len(df))
+                mlflow.log_param("column_count", len(df.columns))
+                
+                # Log dataset statistics
+                for column in df.select_dtypes(include=['number']).columns:
+                    mlflow.log_metric(f"mean_{column}", df[column].mean())
+                    mlflow.log_metric(f"std_{column}", df[column].std())
+                
+                # Log dataset profile summary
+                try:
+                    from pandas_profiling import ProfileReport
+                    profile = ProfileReport(df, minimal=True, title="Dataset Profile")
+                    profile_path = os.path.splitext(dataset_path)[0] + "_profile.html"
+                    profile.to_file(profile_path)
+                    mlflow.log_artifact(profile_path)
+                except ImportError:
+                    pass  # Skip if pandas-profiling not available
+                
+                # Log the dataset file as an artifact
+                mlflow.log_artifact(dataset_path)
+                
+                # Log dataset schema
+                schema = {
+                    "columns": list(df.columns),
+                    "dtypes": {col: str(df[col].dtype) for col in df.columns}
+                }
+                schema_path = os.path.splitext(dataset_path)[0] + "_schema.json"
+                with open(schema_path, 'w') as f:
+                    json.dump(schema, f)
+                mlflow.log_artifact(schema_path)
+                
+                # Get run info for reference
+                run_id = mlflow.active_run().info.run_id
+                
+            # Return run information
+            return {
+                "mlflow_run_id": run_id,
+                "tracking_uri": mlflow.get_tracking_uri(),
+                "dataset_path": dataset_path
             }
-            schema_path = os.path.splitext(dataset_path)[0] + "_schema.json"
-            with open(schema_path, 'w') as f:
-                json.dump(schema, f)
-            mlflow.log_artifact(schema_path)
-            
-            # Get run info for reference
-            run_id = mlflow.active_run().info.run_id
-            
-        # Return run information
-        return {
-            "mlflow_run_id": run_id,
-            "tracking_uri": mlflow.get_tracking_uri(),
-            "dataset_path": dataset_path
-        }
 
     def preprocess(self) -> pd.DataFrame:
         """
