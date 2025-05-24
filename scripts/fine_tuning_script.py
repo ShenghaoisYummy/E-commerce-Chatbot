@@ -104,6 +104,20 @@ def main(args):
                 target_modules=config.get('lora', {}).get('target_modules')
             )
             model = prepare_model_for_lora(model, lora_config)
+            
+            # Ensure model is properly moved from meta device to target device
+            target_device = "cpu" if device_config["device_map"] == "cpu" else "cuda"
+            try:
+                # Check if model is on meta device and needs to be moved
+                if hasattr(model, 'is_meta') and model.is_meta:
+                    model = model.to_empty(device=target_device)
+                elif next(model.parameters()).device.type == "meta":
+                    model = model.to_empty(device=target_device)
+            except Exception as device_error:
+                print(f"Warning: Could not move model to {target_device}: {device_error}")
+                # If to_empty fails, try forcing CPU
+                model = model.cpu()
+                
         except Exception as e:
             if "libcudart.so" in str(e) and "cannot open shared object file" in str(e):
                 print(f"CUDA library error: {str(e)}")
@@ -132,6 +146,18 @@ def main(args):
                 # Set inference_mode to False for training
                 lora_config.inference_mode = False
                 model = prepare_model_for_lora(model, lora_config)
+                
+                # Ensure model is properly moved from meta device to CPU
+                try:
+                    # Check if model is on meta device and needs to be moved
+                    if hasattr(model, 'is_meta') and model.is_meta:
+                        model = model.to_empty(device="cpu")
+                    elif next(model.parameters()).device.type == "meta":
+                        model = model.to_empty(device="cpu")
+                except Exception as device_error:
+                    print(f"Warning: Could not move model to CPU: {device_error}")
+                    # If to_empty fails, try forcing CPU
+                    model = model.cpu()
                 
                 # Update training args for CPU
                 config['training']['fp16'] = False
