@@ -88,15 +88,15 @@ def objective(trial: optuna.Trial, base_config: Dict[Any, Any], train_dataset: A
         
         # Prepare model for LoRA
         try:
-        # Prepare model with LoRA
-        lora_config = get_lora_config(
-            r=config['lora']['r'],
-            lora_alpha=config['lora']['alpha'],
-            lora_dropout=config['lora']['dropout'],
-            target_modules=config['lora']['target_modules']
-        )
-        model = prepare_model_for_lora(model, lora_config)
-        
+            # Prepare model with LoRA
+            lora_config = get_lora_config(
+                r=config['lora']['r'],
+                lora_alpha=config['lora']['alpha'],
+                lora_dropout=config['lora']['dropout'],
+                target_modules=config['lora']['target_modules']
+            )
+            model = prepare_model_for_lora(model, lora_config)
+            
             # Move the model to the actual device AFTER LoRA preparation
             target_device = "cuda" if torch.cuda.is_available() else "cpu"
             model = model.to_empty(device=target_device)
