@@ -227,7 +227,7 @@ def prepare_dataset(data_path, tokenizer, max_length=512, text_column="text"):
             # Tokenize single example
             tokens = tokenizer(
                 example[text_column],
-                padding=False,  # Don't pad here - let data collator handle it
+                padding="max_length",  # Don't pad here - let data collator handle it
                 truncation=True,
                 max_length=max_length,
                 return_tensors=None,
