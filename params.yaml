@@ -7,22 +7,22 @@ sampling:
 
 # Model configuration
 model:
-  base_model: "EleutherAI/gpt-neo-125m"
-  load_in_8bit: false
+  base_model: "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
   device:
-    use_gpu: true # Enable GPU usage
-    precision: "float16" # Can be float32, float16, or bfloat16
-    device_map: "cpu" # Can be "auto", "balanced", "sequential", or specific device like "cuda:0"
+    use_gpu: true
+    precision: "float32"
+    device_map: "auto"
+    load_in_8bit: false
 
 # LoRA configuration
 lora:
   r: 16
   alpha: 32
-  dropout: 0.1
+  dropout: 0.05
   target_modules:
     - "q_proj"
-    - "v_proj"
     - "k_proj"
+    - "v_proj"
     - "o_proj"
     - "gate_proj"
     - "up_proj"
@@ -30,15 +30,15 @@ lora:
 
 # Training configuration
 training:
-  epochs: 3
-  batch_size: 1
-  gradient_accumulation_steps: 1
-  learning_rate: 2.0e-4
+  epochs: 2
+  batch_size: 4
+  gradient_accumulation_steps: 4
+  learning_rate: 2e-4
   weight_decay: 0.01
   warmup_steps: 100
-  max_length: 256
-  fp16: true # Enable mixed precision training
-  bf16: false # Disable bfloat16 training
+  max_length: 1024
+  fp16: true
+  bf16: false
   eval_strategy: "epoch"
   save_strategy: "epoch"
   save_total_limit: 2
@@ -46,11 +46,10 @@ training:
 
 # Data configuration
 data:
-  dataset_path: "data/processed/processed_dataset_10rows_small_dataset_for_testing_pipeline_20250502_132555.csv"
+  dataset_path: "data/processed/chatml_dataset_fine_tuning_dataset.jsonl"
   test_size: 0.1
   seed: 42
-  instruction_column: "instruction"
-  response_column: "response"
+  text_column: "text"
 
 # Evaluation configuration
 evaluation:

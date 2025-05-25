@@ -56,7 +56,7 @@ def load_model_and_tokenizer(model_name, load_in_8bit=False, torch_dtype=torch.f
             )
         else:
             quantization_config = None
-    
+        
         # Always load model to meta device first to prevent device copy issues
         model = AutoModelForCausalLM.from_pretrained(
             model_name,
@@ -72,6 +72,7 @@ def load_model_and_tokenizer(model_name, load_in_8bit=False, torch_dtype=torch.f
         tokenizer.pad_token = tokenizer.eos_token
         
         return model, tokenizer
+        
     except Exception as e:
         # Handle specific CUDA errors
         error_msg = str(e)
@@ -195,48 +196,44 @@ def prepare_model_for_lora(model, lora_config):
         
         raise
 
-def prepare_dataset(data_path, tokenizer, max_length=512, instruction_column="instruction", response_column="response"):
+def prepare_dataset(data_path, tokenizer, max_length=512, text_column="text"):
     """
-    Load and prepare the dataset for instruction fine-tuning.
+    Load and prepare the ChatML dataset for instruction fine-tuning.
     """
     try:
-        # Load the preprocessed CSV
-        df = pd.read_csv(data_path)
+        # Load the preprocessed dataset (CSV or JSONL)
+        if data_path.endswith('.jsonl'):
+            import json
+            data = []
+            with open(data_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    data.append(json.loads(line.strip()))
+            df = pd.DataFrame(data)
+        else:
+            df = pd.read_csv(data_path)
+        
         print(f"Dataset loaded with {len(df)} samples")
         
-        # Verify columns exist
-        if instruction_column not in df.columns or response_column not in df.columns:
+        # Verify text column exists
+        if text_column not in df.columns:
             available_columns = ", ".join(df.columns.tolist())
-            raise ValueError(f"Required columns '{instruction_column}' or '{response_column}' not found in dataset. Available columns: {available_columns}")
+            raise ValueError(f"Required column '{text_column}' not found in dataset. Available columns: {available_columns}")
         
-        # Prepare dataset in instruction-following format
-        formatted_data = []
-        for _, row in df.iterrows():
-            # Convert row to dict if it's a Series
-            if isinstance(row, pd.Series):
-                instruction = row[instruction_column]
-                response = row[response_column]
-            else:
-                instruction = row.get(instruction_column)
-                response = row.get(response_column)
-                
-            formatted_data.append({
-                "text": f"### Instruction: {instruction}\n\n### Response: {response}"
-            })
+        # Convert to HuggingFace Dataset
+        dataset = Dataset.from_pandas(df[[text_column]])
         
-        dataset = Dataset.from_list(formatted_data)
-        
-        # Tokenize the dataset with labels for causal language modeling
+        # Tokenize the ChatML formatted dataset
         def tokenize_function(examples):
+            # Tokenize the ChatML text
             tokenized_inputs = tokenizer(
-                examples["text"],
-                padding="max_length",
+                examples[text_column],
+                padding=False,  # We'll pad in the data collator
                 truncation=True,
                 max_length=max_length,
-                return_tensors=None  # Don't convert to tensors here
+                return_tensors=None
             )
             
-            # Create labels - for causal language modeling, labels are the same as input_ids
+            # For causal language modeling, labels are the same as input_ids
             tokenized_inputs["labels"] = tokenized_inputs["input_ids"].copy()
             
             return tokenized_inputs
@@ -244,7 +241,7 @@ def prepare_dataset(data_path, tokenizer, max_length=512, instruction_column="in
         tokenized_dataset = dataset.map(
             tokenize_function, 
             batched=True,
-            remove_columns=dataset.column_names
+            remove_columns=dataset.column_names  # Remove original text column
         )
         
         return tokenized_dataset
@@ -284,13 +281,22 @@ def get_training_args(output_dir, num_epochs=3, batch_size=8, gradient_accumulat
 
 def generate_response(instruction, model, tokenizer, max_length=150):
     """
-    Generate a response for a given instruction using the fine-tuned model.
+    Generate a response for a given instruction using the ChatML fine-tuned model.
     """
     # Ensure tokenizer has proper pad token
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
-        
-    input_text = f"### Instruction: {instruction}\n\n### Response:"
+    
+    # Format input as ChatML (matching training format)
+    DEFAULT_SYSTEM_PROMPT = "You are a helpful e-commerce customer service assistant. Provide accurate, helpful, and friendly responses to customer inquiries about products, orders, shipping, returns, and general shopping assistance."
+    
+    input_text = (
+        "<|system|>\n" +
+        DEFAULT_SYSTEM_PROMPT.strip() + "\n" +
+        f"<|user|>\n{instruction.strip()}\n" +
+        "<|assistant|>\n"
+    )
+    
     inputs = tokenizer(
         input_text, 
         return_tensors="pt", 
@@ -308,24 +314,27 @@ def generate_response(instruction, model, tokenizer, max_length=150):
                 input_ids=inputs["input_ids"],
                 attention_mask=inputs["attention_mask"],
                 max_new_tokens=max_length,
-                temperature=0.8,  # Slightly higher temperature for stability
+                temperature=0.8,
                 top_p=0.9,
-                top_k=50,  # Add top_k sampling for more stability
+                top_k=50,
                 do_sample=True,
                 pad_token_id=tokenizer.pad_token_id,
                 eos_token_id=tokenizer.eos_token_id,
-                repetition_penalty=1.1,  # Reduce repetition
+                repetition_penalty=1.1,
                 num_return_sequences=1,
-                # Add these for numerical stability
                 output_scores=False,
                 return_dict_in_generate=False
             )
         
         response = tokenizer.decode(outputs[0], skip_special_tokens=True)
         
-        # Extract only the response part
-        if "### Response:" in response:
-            response_part = response.split("### Response:")[1].strip()
+        # Extract only the assistant response part
+        if "<|assistant|>" in response:
+            response_part = response.split("<|assistant|>")[1]
+            # Remove <|end|> token if present
+            if "<|end|>" in response_part:
+                response_part = response_part.split("<|end|>")[0]
+            response_part = response_part.strip()
         else:
             response_part = response.strip()
             
@@ -335,22 +344,24 @@ def generate_response(instruction, model, tokenizer, max_length=150):
         if "probability tensor contains" in str(e):
             print(f"Generation failed due to numerical instability: {e}")
             print("Falling back to greedy decoding...")
-            # Fallback to greedy decoding (no sampling)
             try:
                 with torch.no_grad():
                     outputs = model.generate(
                         input_ids=inputs["input_ids"],
                         attention_mask=inputs["attention_mask"],
-                        max_new_tokens=min(max_length, 50),  # Shorter for safety
-                        do_sample=False,  # Greedy decoding
+                        max_new_tokens=min(max_length, 50),
+                        do_sample=False,
                         pad_token_id=tokenizer.pad_token_id,
                         eos_token_id=tokenizer.eos_token_id,
                         num_return_sequences=1
                     )
                 
                 response = tokenizer.decode(outputs[0], skip_special_tokens=True)
-                if "### Response:" in response:
-                    response_part = response.split("### Response:")[1].strip()
+                if "<|assistant|>" in response:
+                    response_part = response.split("<|assistant|>")[1]
+                    if "<|end|>" in response_part:
+                        response_part = response_part.split("<|end|>")[0]
+                    response_part = response_part.strip()
                 else:
                     response_part = response.strip()
                     

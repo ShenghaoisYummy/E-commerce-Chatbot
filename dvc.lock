@@ -5,20 +5,20 @@ stages:
     deps:
     - path: configs/data_prep_config.yaml
       hash: md5
-      md5: 83db1f223c396ae71aadac2f8b924373
-      size: 1491
+      md5: b93e1eefda5d0d3b8917b628b20022c2
+      size: 544
     - path: data/raw/bitext-retail-ecommerce-llm-chatbot-training-dataset.csv
       hash: md5
       md5: 6dd684fa00ea6f065b0b7c9375e01675
       size: 42624013
     - path: scripts/data_prep_script.py
       hash: md5
-      md5: 9eff00ca0dd5ba07ccb428a0d0951165
-      size: 3607
+      md5: dbc1add556f02862d05c5c752e71a5d2
+      size: 4400
     - path: src/data_prep.py
       hash: md5
-      md5: fcbb3731279b1b77286ada28737710f4
-      size: 8729
+      md5: 4bdf3fdea626ae7034f8f08e6454054c
+      size: 9036
     params:
       params.yaml:
         sampling.sample_description: small_dataset_for_testing_pipeline
@@ -26,8 +26,8 @@ stages:
     outs:
     - path: data/processed/latest_dataset_ref.json
       hash: md5
-      md5: ff983707ad1248a4134b5316e3737390
-      size: 225
+      md5: 81e21d04c621b06f9b977205f31d8211
+      size: 209
   fine_tuning:
     cmd: python scripts/fine_tuning_script.py  --input-ref data/processed/latest_dataset_ref.json  --output-dir
       results/  --config params.yaml  --mlflow-uri https://dagshub.com/ShenghaoisYummy/E-commerce-Chatbot.mlflow

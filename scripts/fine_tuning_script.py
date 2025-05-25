@@ -194,9 +194,8 @@ def main(args):
         tokenized_dataset = prepare_dataset(
             dataset_path, 
             tokenizer, 
-            config.get('training', {}).get('max_length', 512),
-            config.get('data', {}).get('instruction_column', 'instruction'),
-            config.get('data', {}).get('response_column', 'response')
+            config.get('training', {}).get('max_length', 1024),  # Increased for TinyLlama
+            config.get('data', {}).get('text_column', 'text')  # Use text column
         )
         
         # Split dataset

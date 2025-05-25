@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import re
 from typing import Optional, Dict
+import json
 
 class EcommerceDataProcessor:
     """
@@ -69,6 +70,72 @@ class EcommerceDataProcessor:
         }
         return features
 
+    def preprocess(self) -> pd.DataFrame:
+        """
+        Preprocess the e-commerce dataset for fine-tuning.
+        Keeps only instruction and response, formats as ChatML.
+
+        Returns:
+            DataFrame with ChatML formatted conversations
+        """
+        # Default system prompt for e-commerce chatbot
+        DEFAULT_SYSTEM_PROMPT = """You are a helpful e-commerce customer service assistant. Provide accurate, helpful, and friendly responses to customer inquiries about products, orders, shipping, returns, and general shopping assistance."""
+        
+        def wrap_chatml(row):
+            """Convert instruction/response to ChatML format"""
+            return (
+                "<|system|>\n" +
+                DEFAULT_SYSTEM_PROMPT.strip() + "\n" +
+                f"<|user|>\n{row['instruction'].strip()}\n" +
+                "<|assistant|>\n" +
+                f"{row['response'].strip()}\n" +
+                "<|end|>"
+            )
+        
+        # Keep only instruction and response columns
+        df_processed = self.df[['instruction', 'response']].copy()
+        
+        # Remove any rows with missing data
+        df_processed = df_processed.dropna()
+        
+        # Create ChatML formatted conversations
+        df_processed['chatml'] = df_processed.apply(wrap_chatml, axis=1)
+        
+        # Keep only the ChatML column for training
+        df_final = df_processed[['chatml']].copy()
+        df_final.columns = ['text']  # Rename for consistency with training pipeline
+        
+        return df_final
+
+    def run(self) -> pd.DataFrame:
+        """
+        Execute the full pipeline: load -> preprocess.
+
+        Returns:
+            Final preprocessed DataFrame.
+        """
+        self.load()
+        return self.preprocess()
+
+    def save_as_jsonl(self, df: pd.DataFrame, output_path: str) -> None:
+        """
+        Save DataFrame as JSONL format for training.
+        
+        Args:
+            df: DataFrame to save
+            output_path: Path to save JSONL file
+        """
+        # Convert to JSONL format
+        jsonl_path = output_path.replace('.csv', '.jsonl')
+        
+        with open(jsonl_path, 'w', encoding='utf-8') as f:
+            for _, row in df.iterrows():
+                json_line = {"text": row['text']}
+                f.write(json.dumps(json_line, ensure_ascii=False) + '\n')
+        
+        print(f"Saved dataset as JSONL to {jsonl_path}")
+        return jsonl_path
+
     @staticmethod
     def log_dataset_to_mlflow(df, dataset_path, sample_size=None, sample_description=None):
         """
@@ -88,137 +155,79 @@ class EcommerceDataProcessor:
         import json
         from datetime import datetime
         
-        # Configure MLflow tracking URI from environment or use default
-        tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", "https://dagshub.com/ShenghaoisYummy/E-commerce-Chatbot.mlflow")
-        mlflow.set_tracking_uri(tracking_uri)
-        
-        # Set up authentication if credentials are available
-        mlflow_username = os.environ.get("MLFLOW_TRACKING_USERNAME")
-        mlflow_password = os.environ.get("MLFLOW_TRACKING_PASSWORD")
-        
-        if mlflow_username and mlflow_password:
-            os.environ["MLFLOW_TRACKING_USERNAME"] = mlflow_username
-            os.environ["MLFLOW_TRACKING_PASSWORD"] = mlflow_password
-        
-        # Set experiment for datasets specifically
-        mlflow.set_experiment("dataset_versions")
-        
-        # Start MLflow run
-        with mlflow.start_run(run_name=f"dataset_{datetime.now().strftime('%Y%m%d_%H%M%S')}"):
+        try:
+            # Configure MLflow tracking URI from environment
+            tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", "https://dagshub.com/ShenghaoisYummy/E-commerce-Chatbot.mlflow")
+            mlflow.set_tracking_uri(tracking_uri)
+            
+            # Set up authentication if credentials are available
+            mlflow_username = os.environ.get("MLFLOW_TRACKING_USERNAME")
+            mlflow_password = os.environ.get("MLFLOW_TRACKING_PASSWORD")
+            dagshub_token = os.environ.get("DAGSHUB_USER_TOKEN")
+            
+            # Prefer DagHub token if available, otherwise use username/password
+            if dagshub_token:
+                os.environ["MLFLOW_TRACKING_USERNAME"] = "ShenghaoisYummy"
+                os.environ["MLFLOW_TRACKING_PASSWORD"] = dagshub_token
+            elif mlflow_username and mlflow_password:
+                os.environ["MLFLOW_TRACKING_USERNAME"] = mlflow_username
+                os.environ["MLFLOW_TRACKING_PASSWORD"] = mlflow_password
+            else:
+                print("Warning: No MLflow credentials found. Attempting without authentication...")
+            
+            # Set experiment for datasets specifically
+            mlflow.set_experiment("dataset_versions")
+            
+            # Start MLflow run
+            with mlflow.start_run(run_name=f"dataset_{datetime.now().strftime('%Y%m%d_%H%M%S')}"):
                 # Log dataset parameters
                 mlflow.log_param("sample_size", sample_size)
                 mlflow.log_param("sample_description", sample_description)
                 mlflow.log_param("filename", os.path.basename(dataset_path))
                 mlflow.log_param("row_count", len(df))
-                mlflow.log_param("column_count", len(df.columns))
+                mlflow.log_param("format", "jsonl")
+                mlflow.log_param("columns", list(df.columns))
                 
-                # Log dataset statistics
-                for column in df.select_dtypes(include=['number']).columns:
-                    mlflow.log_metric(f"mean_{column}", df[column].mean())
-                    mlflow.log_metric(f"std_{column}", df[column].std())
-                
-                # Log dataset profile summary
-                try:
-                    from pandas_profiling import ProfileReport
-                    profile = ProfileReport(df, minimal=True, title="Dataset Profile")
-                    profile_path = os.path.splitext(dataset_path)[0] + "_profile.html"
-                    profile.to_file(profile_path)
-                    mlflow.log_artifact(profile_path)
-                except ImportError:
-                    pass  # Skip if pandas-profiling not available
-                
-                # Log the dataset file as an artifact
-                mlflow.log_artifact(dataset_path)
-                
-                # Log dataset schema
-                schema = {
+                # Create dataset reference with metadata
+                dataset_ref = {
+                    "dataset_path": dataset_path,
+                    "dataset_size": len(df),
+                    "sample_size": sample_size,
+                    "sample_description": sample_description,
+                    "format": "ChatML",
                     "columns": list(df.columns),
-                    "dtypes": {col: str(df[col].dtype) for col in df.columns}
+                    "created_at": datetime.now().isoformat(),
+                    "file_size_mb": round(os.path.getsize(dataset_path) / (1024*1024), 2) if os.path.exists(dataset_path) else None
                 }
-                schema_path = os.path.splitext(dataset_path)[0] + "_schema.json"
-                with open(schema_path, 'w') as f:
-                    json.dump(schema, f)
-                mlflow.log_artifact(schema_path)
+                
+                # Log dataset info as JSON artifact (not the dataset file)
+                mlflow.log_dict(dataset_ref, "dataset_info.json")
+                
+                # Log dataset schema separately
+                schema_info = {
+                    "columns": list(df.columns),
+                    "dtypes": {col: str(df[col].dtype) for col in df.columns},
+                    "shape": df.shape
+                }
+                mlflow.log_dict(schema_info, "dataset_schema.json")
                 
                 # Get run info for reference
                 run_id = mlflow.active_run().info.run_id
                 
-        # Return run information
-        return {
-            "mlflow_run_id": run_id,
-            "tracking_uri": mlflow.get_tracking_uri(),
-            "dataset_path": dataset_path
-        }
-
-    def preprocess(self) -> pd.DataFrame:
-        """
-        Preprocess the e-commerce dataset with feature engineering.
-
-        Returns:
-            Preprocessed DataFrame with additional features
-        """
-        df_processed = self.df.copy()
-
-        # Clean instruction and response text
-        df_processed['clean_instruction'] = df_processed['instruction'].apply(self.clean_text)
-        df_processed['clean_response'] = df_processed['response'].apply(self.clean_text)
-
-        # Extract language features from tags
-        language_features = df_processed['tags'].apply(self.extract_language_features)
-        df_processed = pd.concat([df_processed, pd.DataFrame(language_features.tolist())], axis=1)
-
-        # Add e-commerce specific features
-        df_processed['instruction_length'] = df_processed['clean_instruction'].apply(len)
-        df_processed['response_length'] = df_processed['clean_response'].apply(len)
-        df_processed['word_count'] = df_processed['clean_instruction'].apply(lambda x: len(x.split()))
-
-        # Create category and intent encodings
-        df_processed['category_code'] = pd.Categorical(df_processed['category']).codes
-        df_processed['intent_code'] = pd.Categorical(df_processed['intent']).codes
-
-        # Extract question-related features
-        df_processed['has_question_mark'] = df_processed['clean_instruction'].apply(lambda x: '?' in x)
-        df_processed['starts_with_question_word'] = df_processed['clean_instruction'].apply(
-            lambda x: any(x.startswith(w) for w in ['what', 'when', 'where', 'who', 'why', 'how', 'can', 'could', 'would'])
-        )
-
-        # Add e-commerce keyword features
-        ecommerce_keywords = {
-            'price': ['price', 'cost', 'expensive', 'cheap'],
-            'shipping': ['shipping', 'delivery', 'ship', 'track'],
-            'payment': ['pay', 'payment', 'card', 'refund'],
-            'product': ['product', 'item', 'order', 'cart'],
-            'return': ['return', 'exchange', 'refund', 'cancel']
-        }
-        for category, keywords in ecommerce_keywords.items():
-            df_processed[f'has_{category}_keywords'] = df_processed['clean_instruction'].apply(
-                lambda x, kw=keywords: any(word in x for word in kw)
-            )
-
-        # Add urgency indicators
-        urgency_words = ['urgent', 'asap', 'emergency', 'immediately', 'quick']
-        df_processed['is_urgent'] = df_processed['clean_instruction'].apply(
-            lambda x: any(word in x for word in urgency_words)
-        )
-
-        # Add sentiment indicators (basic)
-        positive_words = ['please', 'thank', 'good', 'great', 'help']
-        negative_words = ['bad', 'wrong', 'issue', 'problem', 'error', 'complaint']
-        df_processed['has_positive_tone'] = df_processed['clean_instruction'].apply(
-            lambda x: any(word in x for word in positive_words)
-        )
-        df_processed['has_negative_tone'] = df_processed['clean_instruction'].apply(
-            lambda x: any(word in x for word in negative_words)
-        )
-
-        return df_processed
-
-    def run(self) -> pd.DataFrame:
-        """
-        Execute the full pipeline: load -> preprocess.
-
-        Returns:
-            Final preprocessed DataFrame.
-        """
-        self.load()
-        return self.preprocess()
+            # Return run information
+            return {
+                "mlflow_run_id": run_id,
+                "tracking_uri": mlflow.get_tracking_uri(),
+                "dataset_path": dataset_path
+            }
+            
+        except Exception as e:
+            print(f"Error logging to MLflow: {e}")
+            print("Continuing without MLflow logging...")
+            # Return minimal info for pipeline to continue
+            return {
+                "mlflow_run_id": None,
+                "tracking_uri": tracking_uri,
+                "dataset_path": dataset_path,
+                "error": str(e)
+            }
