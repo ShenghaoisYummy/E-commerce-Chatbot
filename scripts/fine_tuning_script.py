@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 # scripts/fine_tuning_script.py
-import sys
 import os
+# Fix tokenizers parallelism warning
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+import sys
 from datetime import datetime
 import json
 import yaml

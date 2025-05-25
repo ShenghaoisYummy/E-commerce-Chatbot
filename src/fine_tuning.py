@@ -224,24 +224,42 @@ def prepare_dataset(data_path, tokenizer, max_length=512, text_column="text"):
         
         # Tokenize the ChatML formatted dataset
         def tokenize_function(examples):
-            # Tokenize the ChatML text
+            # Tokenize the ChatML text with proper padding/truncation
             tokenized_inputs = tokenizer(
                 examples[text_column],
-                padding=False,  # We'll pad in the data collator
+                padding=False,  # Don't pad here - let data collator handle it
                 truncation=True,
                 max_length=max_length,
-                return_tensors=None
+                return_tensors=None,
+                add_special_tokens=True
             )
             
             # For causal language modeling, labels are the same as input_ids
-            tokenized_inputs["labels"] = tokenized_inputs["input_ids"].copy()
+            # Make sure labels are properly formatted
+            tokenized_inputs["labels"] = []
+            for input_ids in tokenized_inputs["input_ids"]:
+                # Ensure labels are the same length as input_ids
+                labels = input_ids.copy()
+                tokenized_inputs["labels"].append(labels)
             
             return tokenized_inputs
         
         tokenized_dataset = dataset.map(
             tokenize_function, 
             batched=True,
-            remove_columns=dataset.column_names  # Remove original text column
+            remove_columns=dataset.column_names,  # Remove original text column
+            desc="Tokenizing dataset"
+        )
+        
+        # Add length information for grouping
+        def add_length(examples):
+            examples["length"] = [len(ids) for ids in examples["input_ids"]]
+            return examples
+        
+        tokenized_dataset = tokenized_dataset.map(
+            add_length,
+            batched=True,
+            desc="Adding length information"
         )
         
         return tokenized_dataset
@@ -272,11 +290,13 @@ def get_training_args(output_dir, num_epochs=3, batch_size=8, gradient_accumulat
         bf16=False,
         gradient_checkpointing=True,
         optim="adamw_torch",
-        learning_rate=2e-4,  
+        learning_rate=2e-4,
         max_grad_norm=1.0,
-        # Memory optimization
-        dataloader_num_workers=4 if torch.cuda.is_available() else 0,
-        dataloader_pin_memory=torch.cuda.is_available(),
+        # Memory and data loading optimization
+        dataloader_num_workers=0,  # Set to 0 to avoid multiprocessing issues
+        dataloader_pin_memory=False,  # Disable to avoid memory issues
+        group_by_length=True,  # Group similar length sequences
+        length_column_name="length",  # For grouping by length
     )
 
 def generate_response(instruction, model, tokenizer, max_length=150):
@@ -375,11 +395,17 @@ def generate_response(instruction, model, tokenizer, max_length=150):
 
 def get_data_collator(tokenizer):
     """
-    Create a data collator for language modeling.
+    Create a data collator for language modeling with proper padding.
     """
+    # Ensure tokenizer has pad token
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    
     return DataCollatorForLanguageModeling(
         tokenizer=tokenizer,
-        mlm=False  # We want causal language modeling, not masked language modeling
+        mlm=False,  # Causal language modeling
+        pad_to_multiple_of=8,  # For efficiency
+        return_tensors="pt"
     )
 
 def update_training_args_from_config(training_args, config):
