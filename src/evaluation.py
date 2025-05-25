@@ -1,10 +1,11 @@
 import torch
 import pandas as pd
 import numpy as np
-from datasets import load_dataset
+from datasets import Dataset
 from nltk.translate.bleu_score import corpus_bleu, sentence_bleu
 from rouge_score import rouge_scorer
 import nltk
+import json
 
 from src.fine_tuning import generate_response
 
@@ -24,6 +25,29 @@ def simple_tokenize(text):
         return []
     # Basic whitespace tokenization
     return text.lower().split()
+
+def extract_instruction_response_from_chatml(text):
+    """
+    Extract instruction and response from ChatML format.
+    """
+    try:
+        # Split by user tag
+        parts = text.split('<|user|>')
+        if len(parts) < 2:
+            return None, None
+            
+        user_and_assistant = parts[1]
+        user_assistant_parts = user_and_assistant.split('<|assistant|>')
+        if len(user_assistant_parts) < 2:
+            return None, None
+            
+        instruction = user_assistant_parts[0].strip()
+        response = user_assistant_parts[1].strip()
+        
+        return instruction, response
+    except Exception as e:
+        print(f"Error extracting from ChatML: {e}")
+        return None, None
 
 def calculate_bleu(references, predictions):
     """
@@ -119,19 +143,58 @@ def calculate_rouge(references, predictions):
 def evaluate_model(model, tokenizer, test_dataset, config):
     """
     Evaluate the model using BLEU and ROUGE metrics.
+    Handles both DataFrame and HuggingFace Dataset formats.
     
     Args:
         model: The fine-tuned model
         tokenizer: Tokenizer for the model
-        test_dataset: Dataset to evaluate on
+        test_dataset: Dataset to evaluate on (DataFrame or HuggingFace Dataset)
         config: Configuration dictionary
         
     Returns:
-        Dict containing evaluation metrics
+        Tuple of (metrics_dict, results_dataframe)
     """
-    # Get test data
-    instructions = test_dataset[config.get('data', {}).get('instruction_column', 'instruction')]
-    references = test_dataset[config.get('data', {}).get('response_column', 'response')]
+    # Handle different input formats
+    if isinstance(test_dataset, pd.DataFrame):
+        # DataFrame format - check if it has instruction/response columns or text column
+        if 'instruction' in test_dataset.columns and 'response' in test_dataset.columns:
+            instructions = test_dataset['instruction'].tolist()
+            references = test_dataset['response'].tolist()
+        elif 'text' in test_dataset.columns:
+            # Extract from ChatML format
+            instructions = []
+            references = []
+            for text in test_dataset['text']:
+                instruction, response = extract_instruction_response_from_chatml(text)
+                if instruction and response:
+                    instructions.append(instruction)
+                    references.append(response)
+        else:
+            raise ValueError("DataFrame must have either 'instruction'/'response' columns or 'text' column")
+    else:
+        # HuggingFace Dataset format
+        if 'instruction' in test_dataset.column_names and 'response' in test_dataset.column_names:
+            instructions = test_dataset['instruction']
+            references = test_dataset['response']
+        elif 'text' in test_dataset.column_names:
+            # Extract from ChatML format
+            instructions = []
+            references = []
+            for text in test_dataset['text']:
+                instruction, response = extract_instruction_response_from_chatml(text)
+                if instruction and response:
+                    instructions.append(instruction)
+                    references.append(response)
+        else:
+            # Try legacy column names from config
+            instruction_col = config.get('data', {}).get('instruction_column', 'instruction')
+            response_col = config.get('data', {}).get('response_column', 'response')
+            
+            if instruction_col in test_dataset.column_names and response_col in test_dataset.column_names:
+                instructions = test_dataset[instruction_col]
+                references = test_dataset[response_col]
+            else:
+                raise ValueError(f"Dataset must have '{instruction_col}'/'{response_col}' columns or 'text' column")
     
     # Generate responses
     predictions = []

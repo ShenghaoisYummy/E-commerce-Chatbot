@@ -7,19 +7,16 @@ import mlflow
 import pandas as pd
 import numpy as np
 from datetime import datetime
-from datasets import load_dataset
-from nltk.translate.bleu_score import corpus_bleu, sentence_bleu
-from rouge_score import rouge_scorer
-import nltk
+from datasets import Dataset
 import json
 import argparse
 from peft import PeftModel
 from transformers import AutoModelForCausalLM
+
 # Add the project root to the path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.evaluation import evaluate_model
-
 
 # Import modules
 from src.fine_tuning import (
@@ -28,9 +25,7 @@ from src.fine_tuning import (
 )
 # Import utility modules
 from utils.mlflow_utils import (
-    mlflow_log_model_info,
     mlflow_start_run,
-    mlflow_setup_tracking,
     load_model_from_dagshub
 )
 from utils.yaml_utils import (
@@ -43,21 +38,29 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-# Download NLTK resources if needed
-try:
-    nltk.data.find('tokenizers/punkt')
-except LookupError:
-    print("Downloading NLTK punkt tokenizer...")
-    nltk.download('punkt', quiet=False)
-
 def parse_args():
     parser = argparse.ArgumentParser(description="Evaluation script")
-    parser.add_argument("--eval-dataset-path", type=str, default="data/evaluation/evaluation_10rows.csv", help="reference location to data path")
+    parser.add_argument("--eval-dataset-path", type=str, default="data/processed/chatml_dataset_fine_tuning_dataset.jsonl", help="Path to evaluation dataset (ChatML JSONL format)")
     parser.add_argument("--model-artifact-path", type=str, default="results/fine_tuned_model_location.json", help="Path to model artifact file")
     parser.add_argument("--output-dir", type=str, default="results/evaluations", help="Directory to write evaluation results")
     parser.add_argument("--config", type=str, default="params.yaml", help="Path to YAML config file defining evaluation options")
     parser.add_argument("--mlflow-uri", type=str, default="", help="MLflow Tracking Server URI")
+    parser.add_argument("--eval-size", type=int, default=100, help="Number of samples to evaluate (for faster testing)")
     return parser.parse_args()      
+
+def load_chatml_dataset(data_path, eval_size=None):
+    """
+    Load ChatML dataset from JSONL file and optionally limit size.
+    """
+    data = []
+    with open(data_path, 'r', encoding='utf-8') as f:
+        for i, line in enumerate(f):
+            if eval_size and i >= eval_size:
+                break
+            data.append(json.loads(line.strip()))
+    
+    df = pd.DataFrame(data)
+    return Dataset.from_pandas(df)
 
 def main(args):
     # Load configuration
@@ -117,25 +120,20 @@ def main(args):
 
             except Exception as e:
                 print(f"Error loading model from DagShub/MLflow: {str(e)}")
-                print("Falling back to specified model path...")
+                print("Falling back to base model...")
                 use_dagshub = False
             
         if not use_dagshub:
-            # Get model path or name from config
-            model_name = config.get('evaluation', {}).get('model_path')
-            if not model_name:
-                print("Error: Model path not specified in config. Add 'model_path' under 'evaluation' section.")
-                return
-            
-            # Load model and tokenizer
-            print(f"Loading model from specified path: {model_name}")
+            # Load base model
+            model_name = config.get('model', {}).get('base_model', 'TinyLlama/TinyLlama-1.1B-Chat-v1.0')
+            print(f"Loading base model: {model_name}")
             model, tokenizer = load_model_and_tokenizer(
                 model_name,
                 load_in_8bit=device_config["use_8bit"],
                 torch_dtype=device_config["torch_dtype"],
                 device_map=device_config["device_map"]
             )
-            mlflow.log_param("model_source", "direct_path")
+            mlflow.log_param("model_source", "base_model")
             mlflow.log_param("model_path", model_name)
         
         # Get evaluation dataset
@@ -146,7 +144,9 @@ def main(args):
             
         print(f"Loading evaluation dataset from {eval_dataset_path}")
         try:
-            test_dataset = load_dataset('csv', data_files=eval_dataset_path)['train']
+            # Load ChatML dataset
+            test_dataset = load_chatml_dataset(eval_dataset_path, args.eval_size)
+            print(f"Loaded {len(test_dataset)} samples for evaluation")
         except Exception as e:
             print(f"Error loading evaluation dataset: {e}")
             return
