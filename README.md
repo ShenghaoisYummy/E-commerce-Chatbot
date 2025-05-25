@@ -27,7 +27,8 @@ Data Preprocessing → Hyperparameter Optimization → Fine-tuning → Evaluatio
 - **MLOps**: DVC, MLflow, DagHub
 - **HPO**: Optuna
 - **Frontend**: Next.js 15, React, TypeScript, Tailwind CSS
-- **Database**: PostgreSQL with Drizzle ORM
+- **Data Storage**: AWS S3
+- **Appliaction Database**: PostgreSQL with NEON Serverless Postgres
 - **Deployment**: Vercel (Frontend), GitHub Actions (CI/CD)
 
 ## 📁 Project Structure
@@ -73,7 +74,7 @@ E-commerce-Chatbot/
 
 - Python 3.9+
 - Node.js 18+ (for web app)
-- CUDA-compatible GPU (recommended)
+- CUDA-compatible GPU (necessary)
 - Git and DVC
 
 ### 1. Clone and Setup
