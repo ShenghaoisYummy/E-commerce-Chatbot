@@ -64,7 +64,7 @@ def load_model_and_tokenizer(model_name, load_in_8bit=False, torch_dtype=torch.f
             model_name,
             quantization_config=quantization_config,
             torch_dtype=torch_dtype,
-            device_map="auto", 
+            device_map=device_map, 
             use_cache=False if device_map == "cpu" else True,
             low_cpu_mem_usage=True
         )
@@ -89,112 +89,52 @@ def load_model_and_tokenizer(model_name, load_in_8bit=False, torch_dtype=torch.f
 
 def prepare_model_for_lora(model, lora_config):
     """
-    Prepare model for LoRA fine-tuning with GPU optimization.
+    Prepare model for LoRA fine-tuning with simplified device handling.
     """
     try:
-        # Always ensure model is on meta device to start
-        if not (hasattr(model, "is_meta") and model.is_meta):
-            try:
-                # Get current device to check if it's already on meta
-                current_device = str(next(model.parameters()).device)
-                if current_device != "meta" and "meta" not in current_device:
-                    # Try to get a fresh model on meta device
-                    print("Model not on meta device, using cautious approach")
-                    # We don't move the model here, as we'll handle this after LoRA
-            except Exception as e:
-                print(f"Error checking model device: {e}")
-        
-        # Handle meta tensors properly
-        is_meta = False
+        # Check current device
         try:
             current_device = next(model.parameters()).device
-            # Check if model is using meta tensors
-            is_meta = getattr(model, "is_meta", False) or hasattr(next(model.parameters()), "is_meta")
+            print(f"Model is currently on device: {current_device}")
         except Exception as e:
-            # If we can't get parameters, it might be a meta tensor model
-            if "Cannot access data pointer of Tensor that doesn't have storage" in str(e):
-                is_meta = True
-                current_device = "meta"
-            else:
-                print(f"Warning when checking device: {e}")
-                current_device = "cpu"
+            print(f"Could not determine model device: {e}")
+            current_device = "cpu"
         
         # Prepare model for quantization if needed
         if getattr(model, "is_loaded_in_8bit", False):
             model = prepare_model_for_kbit_training(model)
         
-        # Apply LoRA
-        try:
-            model = get_peft_model(model, lora_config)
-        except OSError as e:
-            if "libcudart.so" in str(e) and "cannot open shared object file" in str(e):
-                print("CUDA library error detected. Moving model to CPU and retrying...")
-                # Move model to CPU
-                model = model.cpu()
-                # Force CPU device map in config
-                lora_config.inference_mode = False  # Ensure we're in training mode
-                # Retry with CPU
-                model = get_peft_model(model, lora_config)
-                print("Successfully created PEFT model on CPU")
-                return model
-            else:
-                raise
+        # Apply LoRA - this should work regardless of device
+        print("Applying LoRA configuration...")
+        model = get_peft_model(model, lora_config)
         
         # Optimize memory usage
         if hasattr(model, "enable_input_require_grads"):
             model.enable_input_require_grads()
         
-        # Handle moving model to proper device
-        if torch.cuda.is_available():
-            try:
-                # Enable gradient checkpointing if available
-                if hasattr(model, "gradient_checkpointing_enable"):
-                    model.gradient_checkpointing_enable()
-                
-                # Move model to device, handling meta tensors properly
-                if is_meta:
-                    try:
-                        model = model.to(device="cuda")
-                    except AttributeError:
-                        # If to not available, try alternative approach
-                        print("to not available, using manual device setting")
-                        for param in model.parameters():
-                            if hasattr(param, "device") and param.device.type == "meta":
-                                # Try to initialize meta tensor on device
-                                param.data = torch.zeros_like(param, device="cuda")
-                elif str(current_device) != "cuda":
-                    model = model.to(device="cuda")
-            except RuntimeError as e:
-                if "CUDA" in str(e) or "cuda" in str(e).lower():
-                    print(f"CUDA error when moving model: {e}")
-                    print("Falling back to CPU")
-                    if hasattr(model, 'is_meta') and model.is_meta:
-                        model = model.to(device="cpu")
-                    else:
-                        model = model.cpu()
-                else:
-                    raise
+        # Enable gradient checkpointing if available and on GPU
+        if torch.cuda.is_available() and str(current_device) != "cpu":
+            if hasattr(model, "gradient_checkpointing_enable"):
+                model.gradient_checkpointing_enable()
         
+        print(f"LoRA model prepared successfully on device: {next(model.parameters()).device}")
         return model
+        
     except Exception as e:
         print(f"Error preparing model for LoRA: {e}")
         
-        # Try to recover by using CPU-only mode
-        if "CUDA" in str(e) or "cuda" in str(e).lower() or "libcudart" in str(e):
-            print("CUDA error detected, attempting to recover with CPU-only mode...")
+        # If there's a meta tensor error, try CPU fallback
+        if "meta tensor" in str(e).lower():
+            print("Meta tensor error detected, trying CPU fallback...")
             try:
-                # Move model to CPU
-                if hasattr(model, 'is_meta') and model.is_meta:
-                    model = model.to(device="cpu")
-                else:
-                    model = model.cpu()
-                # Apply LoRA
+                # Force CPU loading
+                model = model.cpu()
                 lora_config.inference_mode = False
                 model = get_peft_model(model, lora_config)
                 print("Successfully created PEFT model on CPU")
                 return model
             except Exception as recovery_error:
-                print(f"Recovery attempt failed: {recovery_error}")
+                print(f"CPU recovery attempt failed: {recovery_error}")
         
         raise
 
