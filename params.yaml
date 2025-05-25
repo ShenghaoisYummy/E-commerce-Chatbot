@@ -33,10 +33,10 @@ training:
   epochs: 2
   batch_size: 4
   gradient_accumulation_steps: 4
-  learning_rate: 0.0002
+  learning_rate: 0.0005
   weight_decay: 0.01
   warmup_steps: 100
-  max_length: 1024
+  max_length: 512
   fp16: true
   bf16: false
   eval_strategy: "epoch"

@@ -255,7 +255,7 @@ def prepare_dataset(data_path, tokenizer, max_length=512, text_column="text"):
                 prompt_part = text[:assistant_start]
                 prompt_tokens = tokenizer(
                     prompt_part, 
-                    add_special_tokens=True,  # Include special tokens in prompt
+                    add_special_tokens=False,  # Include special tokens in prompt
                     return_tensors=None
                 )["input_ids"]
                 
@@ -324,7 +324,7 @@ def get_training_args(output_dir, num_epochs=3, batch_size=8, gradient_accumulat
         gradient_checkpointing=True,
         optim="adamw_torch",
         learning_rate=2e-4,
-        max_grad_norm=None,
+        max_grad_norm=20.0,
         # Memory and data loading optimization
         dataloader_num_workers=0,
         dataloader_pin_memory=False,
@@ -351,10 +351,10 @@ def generate_response(instruction, model, tokenizer, max_length=150):
     
     inputs = tokenizer(
         input_text, 
+        max_length=512,
         return_tensors="pt", 
         padding="max_length", 
         truncation=True, 
-        max_length=512
     ).to(model.device)
     
     # Ensure model is in eval mode
