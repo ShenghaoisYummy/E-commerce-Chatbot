@@ -244,7 +244,7 @@ def prepare_dataset(data_path, tokenizer, max_length=512, text_column="text"):
                     text,
                     truncation=True,
                     max_length=max_length,
-                    padding=True,
+                    padding="max_length",
                     add_special_tokens=True,
                     return_tensors=None
                 )
@@ -344,7 +344,7 @@ def generate_response(instruction, model, tokenizer, max_length=150):
     inputs = tokenizer(
         input_text, 
         return_tensors="pt", 
-        padding=True, 
+        padding="max_length", 
         truncation=True, 
         max_length=512
     ).to(model.device)
