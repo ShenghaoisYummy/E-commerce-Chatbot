@@ -74,15 +74,15 @@ def objective(trial: optuna.Trial, base_config: Dict[Any, Any], train_dataset: A
     os.makedirs(output_dir, exist_ok=True)
     
     try:
-        # Override device map to always use meta for initial loading
-        device_settings['device_map'] = "meta"
-
+        # ✅ FIX: Use direct GPU loading instead of meta device
+        # Don't override device_map - use the configured one
+        
         # Load model and tokenizer with proper device settings
         model, tokenizer = load_model_and_tokenizer(
             config['model']['base_model'],
             load_in_8bit=device_settings['use_8bit'],
             torch_dtype=device_settings['torch_dtype'],
-            device_map=device_settings['device_map']  # Always meta
+            device_map=device_settings['device_map']  # Use configured device_map
         )
         
         # Prepare model for LoRA
@@ -94,14 +94,15 @@ def objective(trial: optuna.Trial, base_config: Dict[Any, Any], train_dataset: A
                 lora_dropout=config['lora']['dropout'],
                 target_modules=config['lora']['target_modules']
             )
+            # ✅ Set inference_mode=False for training
+            lora_config.inference_mode = False
             model = prepare_model_for_lora(model, lora_config)
             
-            # Move the model to the actual device AFTER LoRA preparation
-            target_device = "cuda" if torch.cuda.is_available() else "cpu"
-            model = model.to(device=target_device)
+            # ✅ No need to manually move model - it's already on the right device
+            logger.info(f"Model loaded on device: {next(model.parameters()).device}")
             
         except Exception as e:
-            logger.error(f"Error preparing model or moving to device: {str(e)}")
+            logger.error(f"Error preparing model: {str(e)}")
             raise optuna.TrialPruned()
         
         # Get training arguments
@@ -159,15 +160,6 @@ def objective(trial: optuna.Trial, base_config: Dict[Any, Any], train_dataset: A
         
     except Exception as e:
         logger.error(f"Trial {trial.number} failed: {str(e)}")
-        
-        # Check for CUDA library errors
-        if "libcudart.so" in str(e) and "cannot open shared object file" in str(e):
-            logger.error("CUDA runtime library error detected. This may be due to a mismatch between installed CUDA version and PyTorch requirements.")
-            logger.error("Suggestions:")
-            logger.error("1. Ensure CUDA drivers are properly installed")
-            logger.error("2. Try installing the correct CUDA toolkit version")
-            logger.error("3. Consider setting 'use_8bit: false' and 'use_fp16: false' in params.yaml to run on CPU")
-        
         raise optuna.TrialPruned()
 
 def run_hpo(train_dataset: Any, eval_tokenized_dataset: Any, eval_raw_data: pd.DataFrame, n_trials: int = 20, n_jobs: int = 4, config: Dict[Any, Any] = None) -> Dict[str, Any]:
