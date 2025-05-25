@@ -40,7 +40,7 @@ stages:
   evaluation:
     cmd: >-
       python scripts/evaluation_script.py 
-      --eval-dataset-path data/chatml_dataset_eval_dataset.jsonl
+      --eval-dataset-path data/evaluation/chatml_dataset_eval_dataset.jsonl
       --model-artifact-path results/fine_tuned_model_location.json
       --output-dir results/evaluations
       --config params.yaml
@@ -48,7 +48,7 @@ stages:
     deps:
       - scripts/evaluation_script.py
       - src/evaluation.py
-      - data/chatml_dataset_eval_dataset.jsonl
+      - data/evaluation/chatml_dataset_eval_dataset.jsonl
       - results/fine_tuned_model_location.json
     params:
       - evaluation
