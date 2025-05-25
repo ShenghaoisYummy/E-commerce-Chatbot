@@ -222,11 +222,11 @@ def prepare_dataset(data_path, tokenizer, max_length=512, text_column="text"):
         # Convert to HuggingFace Dataset
         dataset = Dataset.from_pandas(df[[text_column]])
         
-        # Tokenize the ChatML formatted dataset
-        def tokenize_function(examples):
-            # Tokenize the ChatML text with proper padding/truncation
-            tokenized_inputs = tokenizer(
-                examples[text_column],
+        # Tokenize the ChatML formatted dataset - process individually to avoid batching issues
+        def tokenize_function(example):
+            # Tokenize single example
+            tokens = tokenizer(
+                example[text_column],
                 padding=False,  # Don't pad here - let data collator handle it
                 truncation=True,
                 max_length=max_length,
@@ -235,27 +235,17 @@ def prepare_dataset(data_path, tokenizer, max_length=512, text_column="text"):
             )
             
             # For causal language modeling, labels are the same as input_ids
-            # Ensure labels are exactly the same format as input_ids
-            tokenized_inputs["labels"] = tokenized_inputs["input_ids"].copy()
+            example["input_ids"] = tokens["input_ids"]
+            example["attention_mask"] = tokens["attention_mask"]
+            example["labels"] = tokens["input_ids"].copy()  # Copy for labels
             
-            return tokenized_inputs
+            return example
         
         tokenized_dataset = dataset.map(
-            tokenize_function, 
-            batched=True,
+            tokenize_function,
+            batched=False,  # Process one at a time to avoid batching issues
             remove_columns=dataset.column_names,  # Remove original text column
             desc="Tokenizing dataset"
-        )
-        
-        # Add length information for grouping
-        def add_length(examples):
-            examples["length"] = [len(ids) for ids in examples["input_ids"]]
-            return examples
-        
-        tokenized_dataset = tokenized_dataset.map(
-            add_length,
-            batched=True,
-            desc="Adding length information"
         )
         
         return tokenized_dataset
@@ -289,10 +279,6 @@ def get_training_args(output_dir, num_epochs=3, batch_size=8, gradient_accumulat
         learning_rate=2e-4,
         max_grad_norm=1.0,
         # Memory and data loading optimization
-        dataloader_num_workers=0,  # Set to 0 to avoid multiprocessing issues
-        dataloader_pin_memory=False,  # Disable to avoid memory issues
-        group_by_length=True,  # Group similar length sequences
-        length_column_name="length",  # For grouping by length
     )
 
 def generate_response(instruction, model, tokenizer, max_length=150):
@@ -397,12 +383,17 @@ def get_data_collator(tokenizer):
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     
-    return DataCollatorForLanguageModeling(
+    # Use a more explicit data collator that handles padding better
+    from transformers import DataCollatorForLanguageModeling
+    
+    collator = DataCollatorForLanguageModeling(
         tokenizer=tokenizer,
         mlm=False,  # Causal language modeling
-        pad_to_multiple_of=8,  # For efficiency
+        pad_to_multiple_of=None,  # Remove this constraint that might cause issues
         return_tensors="pt"
     )
+    
+    return collator
 
 def update_training_args_from_config(training_args, config):
     """
