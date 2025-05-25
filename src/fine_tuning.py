@@ -198,7 +198,7 @@ def prepare_model_for_lora(model, lora_config):
 
 def prepare_dataset(data_path, tokenizer, max_length=512, text_column="text"):
     """
-    Load and prepare the ChatML dataset for instruction fine-tuning.
+    Load and prepare the ChatML dataset for instruction fine-tuning with loss masking.
     """
     try:
         # Load the preprocessed dataset (CSV or JSONL)
@@ -222,30 +222,72 @@ def prepare_dataset(data_path, tokenizer, max_length=512, text_column="text"):
         # Convert to HuggingFace Dataset
         dataset = Dataset.from_pandas(df[[text_column]])
         
-        # Tokenize the ChatML formatted dataset - process individually to avoid batching issues
-        def tokenize_function(example):
-            # Tokenize single example
-            tokens = tokenizer(
-                example[text_column],
-                padding="max_length",  # Don't pad here - let data collator handle it
-                truncation=True,
-                max_length=max_length,
-                return_tensors=None,
-                add_special_tokens=True
-            )
+        def tokenize_with_loss_mask(examples):
+            """
+            Tokenize with loss masking - only compute loss on assistant responses.
+            """
+            tokenized_inputs = []
             
-            # For causal language modeling, labels are the same as input_ids
-            example["input_ids"] = tokens["input_ids"]
-            example["attention_mask"] = tokens["attention_mask"]
-            example["labels"] = tokens["input_ids"].copy()  # Copy for labels
+            for text in examples[text_column]:
+                # Find where assistant response starts
+                assistant_idx = text.find("<|assistant|>")
+                if assistant_idx == -1:
+                    # If no assistant tag found, skip this example
+                    print(f"Warning: No <|assistant|> tag found in text: {text[:100]}...")
+                    continue
+                
+                # Add the tag length to get to the actual response
+                assistant_idx += len("<|assistant|>")
+                
+                # Tokenize the full text
+                encodings = tokenizer(
+                    text,
+                    truncation=True,
+                    max_length=max_length,
+                    padding=False,
+                    add_special_tokens=True,
+                    return_tensors=None
+                )
+                
+                # Tokenize just the prompt part to determine its length
+                prompt_tokens = tokenizer(text[:assistant_idx], add_special_tokens=False)["input_ids"]
+                n_prompt = len(prompt_tokens)
+                
+                # Create labels: -100 for prompt tokens (no loss), actual token IDs for response tokens
+                labels = [-100] * min(n_prompt, max_length)
+                
+                # Add the remaining labels for the assistant response
+                remaining_length = max_length - len(labels)
+                if remaining_length > 0 and n_prompt < len(encodings["input_ids"]):
+                    response_tokens = encodings["input_ids"][n_prompt:min(len(encodings["input_ids"]), n_prompt + remaining_length)]
+                    labels.extend(response_tokens)
+                
+                # Ensure labels match input_ids length
+                input_length = len(encodings["input_ids"])
+                if len(labels) > input_length:
+                    labels = labels[:input_length]
+                elif len(labels) < input_length:
+                    # This shouldn't happen, but let's be safe
+                    labels.extend([-100] * (input_length - len(labels)))
+                
+                tokenized_inputs.append({
+                    "input_ids": encodings["input_ids"],
+                    "attention_mask": encodings["attention_mask"], 
+                    "labels": labels
+                })
             
-            return example
+            # Convert list of dicts to dict of lists for HuggingFace datasets
+            if not tokenized_inputs:
+                return {"input_ids": [], "attention_mask": [], "labels": []}
+            
+            result = {key: [item[key] for item in tokenized_inputs] for key in tokenized_inputs[0].keys()}
+            return result
         
         tokenized_dataset = dataset.map(
-            tokenize_function,
-            batched=False,  # Process one at a time to avoid batching issues
-            remove_columns=dataset.column_names,  # Remove original text column
-            desc="Tokenizing dataset"
+            tokenize_with_loss_mask,
+            batched=True,
+            remove_columns=dataset.column_names,
+            desc="Tokenizing with loss masking"
         )
         
         return tokenized_dataset
