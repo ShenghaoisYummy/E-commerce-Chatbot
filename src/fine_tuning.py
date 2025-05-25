@@ -319,7 +319,7 @@ def get_training_args(output_dir, num_epochs=3, batch_size=8, gradient_accumulat
         gradient_checkpointing=True,
         optim="adamw_torch",
         learning_rate=2e-4,
-        max_grad_norm=1.0,
+        max_grad_norm=5.0,
         # Memory and data loading optimization
     )
 
@@ -419,22 +419,67 @@ def generate_response(instruction, model, tokenizer, max_length=150):
 
 def get_data_collator(tokenizer):
     """
-    Create a data collator for language modeling with proper padding.
+    Create a custom data collator for language modeling with robust padding.
     """
+    import torch
+    from dataclasses import dataclass
+    from typing import Any, Dict, List, Union
+    
     # Ensure tokenizer has pad token
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     
-    # Use a more explicit data collator that handles padding better
-    from transformers import DataCollatorForLanguageModeling
+    @dataclass
+    class CustomDataCollatorForLanguageModeling:
+        """
+        Custom data collator that handles padding more robustly.
+        """
+        tokenizer: Any
+        mlm: bool = False
+        
+        def __call__(self, features: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
+            # Extract the different components
+            input_ids = [f["input_ids"] for f in features]
+            attention_masks = [f["attention_mask"] for f in features]
+            labels = [f["labels"] for f in features]
+            
+            # Find the maximum length in this batch
+            max_length = max(len(ids) for ids in input_ids)
+            
+            # Pad all sequences to the same length
+            padded_input_ids = []
+            padded_attention_masks = []
+            padded_labels = []
+            
+            for i in range(len(input_ids)):
+                current_length = len(input_ids[i])
+                padding_length = max_length - current_length
+                
+                # Pad input_ids
+                padded_input_ids.append(
+                    input_ids[i] + [self.tokenizer.pad_token_id] * padding_length
+                )
+                
+                # Pad attention_mask
+                padded_attention_masks.append(
+                    attention_masks[i] + [0] * padding_length
+                )
+                
+                # Pad labels (use -100 for padding tokens so they're ignored in loss)
+                padded_labels.append(
+                    labels[i] + [-100] * padding_length
+                )
+            
+            # Convert to tensors
+            batch = {
+                "input_ids": torch.tensor(padded_input_ids, dtype=torch.long),
+                "attention_mask": torch.tensor(padded_attention_masks, dtype=torch.long),
+                "labels": torch.tensor(padded_labels, dtype=torch.long),
+            }
+            
+            return batch
     
-    collator = DataCollatorForLanguageModeling(
-        tokenizer=tokenizer,
-        mlm=False,  # Causal language modeling
-        pad_to_multiple_of=8,  # Remove this constraint that might cause issues
-    )
-    
-    return collator
+    return CustomDataCollatorForLanguageModeling(tokenizer=tokenizer)
 
 def update_training_args_from_config(training_args, config):
     """
