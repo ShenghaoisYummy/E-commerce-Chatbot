@@ -389,8 +389,7 @@ def get_data_collator(tokenizer):
     collator = DataCollatorForLanguageModeling(
         tokenizer=tokenizer,
         mlm=False,  # Causal language modeling
-        pad_to_multiple_of=None,  # Remove this constraint that might cause issues
-        return_tensors="pt"
+        pad_to_multiple_of=8,  # Remove this constraint that might cause issues
     )
     
     return collator
