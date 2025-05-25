@@ -244,7 +244,7 @@ def prepare_dataset(data_path, tokenizer, max_length=512, text_column="text"):
                     text,
                     truncation=True,
                     max_length=max_length,
-                    padding=False,
+                    padding=True,
                     add_special_tokens=True,
                     return_tensors=None
                 )
