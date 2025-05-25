@@ -12,7 +12,7 @@ mlflow/
 mlruns/
 .dvc/
 *.dvc
-/data
+# /data
 
 # Python
 src/__pycache__/
