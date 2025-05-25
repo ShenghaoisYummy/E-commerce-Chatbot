@@ -154,22 +154,22 @@ def prepare_model_for_lora(model, lora_config):
                 # Move model to device, handling meta tensors properly
                 if is_meta:
                     try:
-                        model = model.to_empty(device="cuda")
+                        model = model.to(device="cuda")
                     except AttributeError:
-                        # If to_empty not available, try alternative approach
-                        print("to_empty not available, using manual device setting")
+                        # If to not available, try alternative approach
+                        print("to not available, using manual device setting")
                         for param in model.parameters():
                             if hasattr(param, "device") and param.device.type == "meta":
                                 # Try to initialize meta tensor on device
                                 param.data = torch.zeros_like(param, device="cuda")
                 elif str(current_device) != "cuda":
-                    model = model.to_empty(device="cuda")
+                    model = model.to(device="cuda")
             except RuntimeError as e:
                 if "CUDA" in str(e) or "cuda" in str(e).lower():
                     print(f"CUDA error when moving model: {e}")
                     print("Falling back to CPU")
                     if hasattr(model, 'is_meta') and model.is_meta:
-                        model = model.to_empty(device="cpu")
+                        model = model.to(device="cpu")
                     else:
                         model = model.cpu()
                 else:
@@ -185,7 +185,7 @@ def prepare_model_for_lora(model, lora_config):
             try:
                 # Move model to CPU
                 if hasattr(model, 'is_meta') and model.is_meta:
-                    model = model.to_empty(device="cpu")
+                    model = model.to(device="cpu")
                 else:
                     model = model.cpu()
                 # Apply LoRA

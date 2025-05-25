@@ -98,7 +98,7 @@ def objective(trial: optuna.Trial, base_config: Dict[Any, Any], train_dataset: A
             
             # Move the model to the actual device AFTER LoRA preparation
             target_device = "cuda" if torch.cuda.is_available() else "cpu"
-            model = model.to_empty(device=target_device)
+            model = model.to(device=target_device)
             
         except Exception as e:
             logger.error(f"Error preparing model or moving to device: {str(e)}")
@@ -210,7 +210,7 @@ def run_hpo(train_dataset: Any, eval_tokenized_dataset: Any, eval_raw_data: pd.D
                 logger.error("Meta tensor error detected. This is likely a device transfer issue.")
                 logger.error("Recommendations:")
                 logger.error("1. Set device_map='meta' when loading models")
-                logger.error("2. Use to_empty() for meta tensors")
+                logger.error("2. Use to() for meta tensors")
                 logger.error("3. Reduce batch size or model size if memory is an issue")
             return float('-inf')  # Return worst possible score
     

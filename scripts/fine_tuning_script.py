@@ -113,12 +113,12 @@ def main(args):
             try:
                 # Check if model is on meta device and needs to be moved
                 if hasattr(model, 'is_meta') and model.is_meta:
-                    model = model.to_empty(device=target_device)
+                    model = model.to(device=target_device)
                 elif next(model.parameters()).device.type == "meta":
-                    model = model.to_empty(device=target_device)
+                    model = model.to(device=target_device)
             except Exception as device_error:
                 print(f"Warning: Could not move model to {target_device}: {device_error}")
-                # If to_empty fails, try forcing CPU
+                # If to fails, try forcing CPU
                 model = model.cpu()
                 
         except Exception as e:
@@ -154,12 +154,12 @@ def main(args):
                 try:
                     # Check if model is on meta device and needs to be moved
                     if hasattr(model, 'is_meta') and model.is_meta:
-                        model = model.to_empty(device="cpu")
+                        model = model.to(device="cpu")
                     elif next(model.parameters()).device.type == "meta":
-                        model = model.to_empty(device="cpu")
+                        model = model.to(device="cpu")
                 except Exception as device_error:
                     print(f"Warning: Could not move model to CPU: {device_error}")
-                    # If to_empty fails, try forcing CPU
+                    # If to fails, try forcing CPU
                     model = model.cpu()
                 
                 # Update training args for CPU
