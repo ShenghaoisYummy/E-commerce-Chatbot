@@ -7,6 +7,7 @@ import os
 import json
 import time
 import pandas as pd
+import torch
 from dotenv import load_dotenv
 load_dotenv()
 
