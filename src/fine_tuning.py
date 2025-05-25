@@ -7,8 +7,8 @@ from transformers import (
     AutoModelForCausalLM, 
     AutoTokenizer, 
     TrainingArguments, 
-    DataCollatorForLanguageModeling,
-    BitsAndBytesConfig
+    BitsAndBytesConfig,
+    DataCollatorWithPadding
 )
 from torch.nn import CrossEntropyLoss
 
@@ -64,7 +64,7 @@ def load_model_and_tokenizer(model_name, load_in_8bit=False, torch_dtype=torch.f
             model_name,
             quantization_config=quantization_config,
             torch_dtype=torch_dtype,
-            device_map="meta",  # Always load to meta first
+            device_map="auto", 
             use_cache=False if device_map == "cpu" else True,
             low_cpu_mem_usage=True
         )
@@ -426,18 +426,12 @@ def generate_response(instruction, model, tokenizer, max_length=150):
             raise
 
 def get_data_collator(tokenizer):
-    """
-    Simple data collator for fixed-length sequences with loss masking.
-    """
-    # Ensure tokenizer has pad token
     if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-    
-    from transformers import DataCollatorForLanguageModeling
-    
-    return DataCollatorForLanguageModeling(
+        tokenizer.pad_token = tokenizer.eos_token   # 保证有 pad_token
+
+    return DataCollatorWithPadding(
         tokenizer=tokenizer,
-        mlm=False,  # Causal language modeling
+        padding="longest",      # 或 "max_length", pad_to_multiple_of=8 等
         return_tensors="pt"
     )
 
