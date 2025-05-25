@@ -255,10 +255,10 @@ def get_training_args(output_dir, num_epochs=3, batch_size=8, gradient_accumulat
     """
     return TrainingArguments(
         output_dir=output_dir,
-        num_train_epochs=num_epochs,
-        per_device_train_batch_size=batch_size,
-        per_device_eval_batch_size=batch_size,
-        gradient_accumulation_steps=gradient_accumulation_steps,
+        num_train_epochs=int(num_epochs),
+        per_device_train_batch_size=int(batch_size),
+        per_device_eval_batch_size=int(batch_size),
+        gradient_accumulation_steps=int(gradient_accumulation_steps),
         warmup_steps=100,
         weight_decay=0.01,
         logging_dir=f"{output_dir}/logs",
@@ -268,12 +268,12 @@ def get_training_args(output_dir, num_epochs=3, batch_size=8, gradient_accumulat
         save_total_limit=2,
         load_best_model_at_end=True,
         # GPU optimization settings
-        fp16=torch.cuda.is_available(),  # Enable fp16 if GPU available
-        bf16=False,  # Disable bfloat16 by default
-        gradient_checkpointing=True,  # Enable gradient checkpointing
-        optim="adamw_torch",  # Use AdamW optimizer
-        learning_rate=2e-4,
-        max_grad_norm=1.0,  # Gradient clipping
+        fp16=torch.cuda.is_available(),
+        bf16=False,
+        gradient_checkpointing=True,
+        optim="adamw_torch",
+        learning_rate=2e-4,  
+        max_grad_norm=1.0,
         # Memory optimization
         dataloader_num_workers=4 if torch.cuda.is_available() else 0,
         dataloader_pin_memory=torch.cuda.is_available(),

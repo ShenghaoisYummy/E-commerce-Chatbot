@@ -33,7 +33,7 @@ training:
   epochs: 2
   batch_size: 4
   gradient_accumulation_steps: 4
-  learning_rate: 2e-4
+  learning_rate: 0.0002
   weight_decay: 0.01
   warmup_steps: 100
   max_length: 1024
