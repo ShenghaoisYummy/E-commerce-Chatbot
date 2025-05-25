@@ -24,7 +24,8 @@ def get_lora_config(r=8, lora_alpha=32, lora_dropout=0.05, target_modules=None):
         lora_dropout=lora_dropout,
         bias="none",
         task_type="CAUSAL_LM",
-        target_modules=target_modules
+        target_modules=target_modules,
+        inference_mode=False
     )
 
 def load_model_and_tokenizer(model_name, load_in_8bit=False, torch_dtype=torch.float32, device_map="auto"):
@@ -244,7 +245,7 @@ def prepare_dataset(data_path, tokenizer, max_length=512, text_column="text"):
                     text,
                     truncation=True,
                     max_length=max_length,
-                    padding="max_length",
+                    padding=False,
                     add_special_tokens=True,
                     return_tensors=None
                 )
@@ -321,6 +322,9 @@ def get_training_args(output_dir, num_epochs=3, batch_size=8, gradient_accumulat
         learning_rate=2e-4,
         max_grad_norm=5.0,
         # Memory and data loading optimization
+        dataloader_num_workers=0,
+        dataloader_pin_memory=False,
+        remove_unused_columns=False,
     )
 
 def generate_response(instruction, model, tokenizer, max_length=150):
