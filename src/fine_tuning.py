@@ -235,12 +235,8 @@ def prepare_dataset(data_path, tokenizer, max_length=512, text_column="text"):
             )
             
             # For causal language modeling, labels are the same as input_ids
-            # Make sure labels are properly formatted
-            tokenized_inputs["labels"] = []
-            for input_ids in tokenized_inputs["input_ids"]:
-                # Ensure labels are the same length as input_ids
-                labels = input_ids.copy()
-                tokenized_inputs["labels"].append(labels)
+            # Ensure labels are exactly the same format as input_ids
+            tokenized_inputs["labels"] = tokenized_inputs["input_ids"].copy()
             
             return tokenized_inputs
         
