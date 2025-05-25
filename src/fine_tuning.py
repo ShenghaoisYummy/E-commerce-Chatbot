@@ -10,6 +10,7 @@ from transformers import (
     DataCollatorForLanguageModeling,
     BitsAndBytesConfig
 )
+from torch.nn import CrossEntropyLoss
 
 def get_lora_config(r=8, lora_alpha=32, lora_dropout=0.05, target_modules=None):
     """
@@ -199,7 +200,7 @@ def prepare_model_for_lora(model, lora_config):
 
 def prepare_dataset(data_path, tokenizer, max_length=512, text_column="text"):
     """
-    简化版数据准备 - 不使用loss masking，先让训练工作起来
+    Load and prepare the ChatML dataset with proper loss masking.
     """
     try:
         # Load the preprocessed dataset (CSV or JSONL)
@@ -223,31 +224,75 @@ def prepare_dataset(data_path, tokenizer, max_length=512, text_column="text"):
         # Convert to HuggingFace Dataset
         dataset = Dataset.from_pandas(df[[text_column]])
         
-        # simplified tokenization - no loss masking
-        def simple_tokenize_function(examples):
+        def tokenize_with_loss_mask(examples):
             """
-            简单tokenization - 所有tokens都参与loss计算
+            Tokenize with loss masking - only compute loss on assistant responses.
             """
-            # Tokenize the ChatML text
-            tokenized_inputs = tokenizer(
-                examples[text_column],
-                padding="max_length", 
-                truncation=True,
-                max_length=max_length,
-                return_tensors=None,
-                add_special_tokens=True
-            )
+            tokenized_inputs = []
             
-            # for causal language modeling, labels are copies of input_ids
-            tokenized_inputs["labels"] = [ids.copy() for ids in tokenized_inputs["input_ids"]]
+            for text in examples[text_column]:
+                # Find where assistant response starts
+                assistant_idx = text.find("<|assistant|>")
+                if assistant_idx == -1:
+                    # If no assistant tag found, skip this example
+                    print(f"Warning: No <|assistant|> tag found in text: {text[:100]}...")
+                    continue
+                
+                # Add the tag length to get to the actual response start
+                assistant_start = assistant_idx + len("<|assistant|>")
+                
+                # Tokenize the full text with fixed length
+                encodings = tokenizer(
+                    text,
+                    truncation=True,
+                    max_length=max_length,
+                    padding="max_length",  # Fixed length to avoid tensor issues
+                    add_special_tokens=True,
+                    return_tensors=None
+                )
+                
+                # Tokenize just the prompt part to determine its length
+                prompt_part = text[:assistant_start]
+                prompt_tokens = tokenizer(
+                    prompt_part, 
+                    add_special_tokens=True,  # Include special tokens in prompt
+                    return_tensors=None
+                )["input_ids"]
+                
+                # Calculate prompt length (number of tokens to mask)
+                prompt_length = len(prompt_tokens)
+                
+                # Create labels with loss masking
+                input_ids = encodings["input_ids"]
+                labels = input_ids.copy()
+                
+                # Mask prompt tokens (set to -100 so they're ignored in loss)
+                for i in range(min(prompt_length, len(labels))):
+                    labels[i] = -100
+                
+                # Also mask padding tokens
+                for i in range(len(labels)):
+                    if input_ids[i] == tokenizer.pad_token_id:
+                        labels[i] = -100
+                
+                tokenized_inputs.append({
+                    "input_ids": input_ids,
+                    "attention_mask": encodings["attention_mask"],
+                    "labels": labels
+                })
             
-            return tokenized_inputs
+            # Convert list of dicts to dict of lists for HuggingFace datasets
+            if not tokenized_inputs:
+                return {"input_ids": [], "attention_mask": [], "labels": []}
+            
+            result = {key: [item[key] for item in tokenized_inputs] for key in tokenized_inputs[0].keys()}
+            return result
         
         tokenized_dataset = dataset.map(
-            simple_tokenize_function,
+            tokenize_with_loss_mask,
             batched=True,
             remove_columns=dataset.column_names,
-            desc="Simple tokenizing (no loss masking)"
+            desc="Tokenizing with loss masking"
         )
         
         return tokenized_dataset
@@ -382,18 +427,17 @@ def generate_response(instruction, model, tokenizer, max_length=150):
 
 def get_data_collator(tokenizer):
     """
-    使用默认DataCollator进行简单测试
+    Simple data collator for fixed-length sequences with loss masking.
     """
     # Ensure tokenizer has pad token
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     
-    # use default data collator
     from transformers import DataCollatorForLanguageModeling
     
     return DataCollatorForLanguageModeling(
         tokenizer=tokenizer,
-        mlm=False,  # causal language modeling
+        mlm=False,  # Causal language modeling
         return_tensors="pt"
     )
 
@@ -424,3 +468,7 @@ def update_training_args_from_config(training_args, config):
         training_args.logging_steps = config['output']['logging_steps']
     
     return training_args
+
+# Only assistant responses contribute to loss
+loss = CrossEntropyLoss(ignore_index=-100)
+# Tokens with label=-100 are automatically ignored
