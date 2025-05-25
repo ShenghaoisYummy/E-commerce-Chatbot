@@ -199,7 +199,7 @@ def prepare_model_for_lora(model, lora_config):
 
 def prepare_dataset(data_path, tokenizer, max_length=512, text_column="text"):
     """
-    Load and prepare the ChatML dataset for instruction fine-tuning with loss masking.
+    简化版数据准备 - 不使用loss masking，先让训练工作起来
     """
     try:
         # Load the preprocessed dataset (CSV or JSONL)
@@ -223,72 +223,31 @@ def prepare_dataset(data_path, tokenizer, max_length=512, text_column="text"):
         # Convert to HuggingFace Dataset
         dataset = Dataset.from_pandas(df[[text_column]])
         
-        def tokenize_with_loss_mask(examples):
+        # simplified tokenization - no loss masking
+        def simple_tokenize_function(examples):
             """
-            Tokenize with loss masking - only compute loss on assistant responses.
+            简单tokenization - 所有tokens都参与loss计算
             """
-            tokenized_inputs = []
+            # Tokenize the ChatML text
+            tokenized_inputs = tokenizer(
+                examples[text_column],
+                padding=False,  # dynamic padding
+                truncation=True,
+                max_length=max_length,
+                return_tensors=None,
+                add_special_tokens=True
+            )
             
-            for text in examples[text_column]:
-                # Find where assistant response starts
-                assistant_idx = text.find("<|assistant|>")
-                if assistant_idx == -1:
-                    # If no assistant tag found, skip this example
-                    print(f"Warning: No <|assistant|> tag found in text: {text[:100]}...")
-                    continue
-                
-                # Add the tag length to get to the actual response
-                assistant_idx += len("<|assistant|>")
-                
-                # Tokenize the full text
-                encodings = tokenizer(
-                    text,
-                    truncation=True,
-                    max_length=max_length,
-                    padding=False,
-                    add_special_tokens=True,
-                    return_tensors=None
-                )
-                
-                # Tokenize just the prompt part to determine its length
-                prompt_tokens = tokenizer(text[:assistant_idx], add_special_tokens=False)["input_ids"]
-                n_prompt = len(prompt_tokens)
-                
-                # Create labels: -100 for prompt tokens (no loss), actual token IDs for response tokens
-                labels = [-100] * min(n_prompt, max_length)
-                
-                # Add the remaining labels for the assistant response
-                remaining_length = max_length - len(labels)
-                if remaining_length > 0 and n_prompt < len(encodings["input_ids"]):
-                    response_tokens = encodings["input_ids"][n_prompt:min(len(encodings["input_ids"]), n_prompt + remaining_length)]
-                    labels.extend(response_tokens)
-                
-                # Ensure labels match input_ids length
-                input_length = len(encodings["input_ids"])
-                if len(labels) > input_length:
-                    labels = labels[:input_length]
-                elif len(labels) < input_length:
-                    # This shouldn't happen, but let's be safe
-                    labels.extend([-100] * (input_length - len(labels)))
-                
-                tokenized_inputs.append({
-                    "input_ids": encodings["input_ids"],
-                    "attention_mask": encodings["attention_mask"], 
-                    "labels": labels
-                })
+            # for causal language modeling, labels are copies of input_ids
+            tokenized_inputs["labels"] = [ids.copy() for ids in tokenized_inputs["input_ids"]]
             
-            # Convert list of dicts to dict of lists for HuggingFace datasets
-            if not tokenized_inputs:
-                return {"input_ids": [], "attention_mask": [], "labels": []}
-            
-            result = {key: [item[key] for item in tokenized_inputs] for key in tokenized_inputs[0].keys()}
-            return result
+            return tokenized_inputs
         
         tokenized_dataset = dataset.map(
-            tokenize_with_loss_mask,
+            simple_tokenize_function,
             batched=True,
             remove_columns=dataset.column_names,
-            desc="Tokenizing with loss masking"
+            desc="Simple tokenizing (no loss masking)"
         )
         
         return tokenized_dataset
@@ -423,67 +382,20 @@ def generate_response(instruction, model, tokenizer, max_length=150):
 
 def get_data_collator(tokenizer):
     """
-    Create a custom data collator for language modeling with robust padding.
+    使用默认DataCollator进行简单测试
     """
-    import torch
-    from dataclasses import dataclass
-    from typing import Any, Dict, List, Union
-    
     # Ensure tokenizer has pad token
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     
-    @dataclass
-    class CustomDataCollatorForLanguageModeling:
-        """
-        Custom data collator that handles padding more robustly.
-        """
-        tokenizer: Any
-        mlm: bool = False
-        
-        def __call__(self, features: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
-            # Extract the different components
-            input_ids = [f["input_ids"] for f in features]
-            attention_masks = [f["attention_mask"] for f in features]
-            labels = [f["labels"] for f in features]
-            
-            # Find the maximum length in this batch
-            max_length = max(len(ids) for ids in input_ids)
-            
-            # Pad all sequences to the same length
-            padded_input_ids = []
-            padded_attention_masks = []
-            padded_labels = []
-            
-            for i in range(len(input_ids)):
-                current_length = len(input_ids[i])
-                padding_length = max_length - current_length
-                
-                # Pad input_ids
-                padded_input_ids.append(
-                    input_ids[i] + [self.tokenizer.pad_token_id] * padding_length
-                )
-                
-                # Pad attention_mask
-                padded_attention_masks.append(
-                    attention_masks[i] + [0] * padding_length
-                )
-                
-                # Pad labels (use -100 for padding tokens so they're ignored in loss)
-                padded_labels.append(
-                    labels[i] + [-100] * padding_length
-                )
-            
-            # Convert to tensors
-            batch = {
-                "input_ids": torch.tensor(padded_input_ids, dtype=torch.long),
-                "attention_mask": torch.tensor(padded_attention_masks, dtype=torch.long),
-                "labels": torch.tensor(padded_labels, dtype=torch.long),
-            }
-            
-            return batch
+    # use default data collator
+    from transformers import DataCollatorForLanguageModeling
     
-    return CustomDataCollatorForLanguageModeling(tokenizer=tokenizer)
+    return DataCollatorForLanguageModeling(
+        tokenizer=tokenizer,
+        mlm=False,  # causal language modeling
+        return_tensors="pt"
+    )
 
 def update_training_args_from_config(training_args, config):
     """

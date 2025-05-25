@@ -291,6 +291,32 @@ def main(args):
                
         print("Model location information saved to results/fine_tuned_model_location.json")
 
+        # 在trainer = Trainer(...) 之前添加调试信息
+
+        print("=== 调试信息 ===")
+        print("检查可训练参数:")
+        trainable_params = 0
+        total_params = 0
+        for name, param in model.named_parameters():
+            total_params += param.numel()
+            if param.requires_grad:
+                trainable_params += param.numel()
+                print(f"✅ 可训练: {name} - {param.shape}")
+            else:
+                print(f"❌ 冻结: {name} - {param.shape}")
+
+        print(f"可训练参数: {trainable_params:,}")
+        print(f"总参数: {total_params:,}")
+        print(f"可训练比例: {100 * trainable_params / total_params:.2f}%")
+
+        # 检查数据样本
+        print("\n检查数据样本:")
+        sample_batch = next(iter(trainer.get_train_dataloader()))
+        print(f"input_ids shape: {sample_batch['input_ids'].shape}")
+        print(f"labels shape: {sample_batch['labels'].shape}")
+        print(f"非-100标签数量: {(sample_batch['labels'] != -100).sum().item()}")
+        print("=== 调试信息结束 ===\n")
+
 if __name__ == "__main__":
     args = parse_args()
     main(args)
