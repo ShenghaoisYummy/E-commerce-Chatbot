@@ -324,7 +324,7 @@ def get_training_args(output_dir, num_epochs=3, batch_size=8, gradient_accumulat
         gradient_checkpointing=True,
         optim="adamw_torch",
         learning_rate=2e-4,
-        max_grad_norm=5.0,
+        max_grad_norm=None,
         # Memory and data loading optimization
         dataloader_num_workers=0,
         dataloader_pin_memory=False,

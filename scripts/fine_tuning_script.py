@@ -257,9 +257,9 @@ def main(args):
             total_params += param.numel()
             if param.requires_grad:
                 trainable_params += param.numel()
-                print(f"✅ 可训练: {name} - {param.shape}")
+                print(f"✅ trainable: {name} - {param.shape}")
             else:
-                print(f"❌ 冻结: {name} - {param.shape}")
+                print(f"❌ frozen: {name} - {param.shape}")
 
         print(f"trainable parameters: {trainable_params:,}")
         print(f"total parameters: {total_params:,}")
