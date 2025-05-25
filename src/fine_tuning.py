@@ -231,7 +231,7 @@ def prepare_dataset(data_path, tokenizer, max_length=512, text_column="text"):
             # Tokenize the ChatML text
             tokenized_inputs = tokenizer(
                 examples[text_column],
-                padding=False,  # dynamic padding
+                padding=True, 
                 truncation=True,
                 max_length=max_length,
                 return_tensors=None,
@@ -307,7 +307,7 @@ def generate_response(instruction, model, tokenizer, max_length=150):
     inputs = tokenizer(
         input_text, 
         return_tensors="pt", 
-        padding="max_length", 
+        padding=True, 
         truncation=True, 
         max_length=512
     ).to(model.device)
