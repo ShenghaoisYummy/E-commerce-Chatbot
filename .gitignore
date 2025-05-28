@@ -10,6 +10,8 @@ results/
 # MLflow and DVC
 mlflow/
 mlruns/
+.dvc/
+
 # /data
 
 # Python
