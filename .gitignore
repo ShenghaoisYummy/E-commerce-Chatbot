@@ -11,7 +11,7 @@ results/
 mlflow/
 mlruns/
 .dvc/
-*.dvc
+
 # /data
 
 # Python

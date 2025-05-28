@@ -1,0 +1,5 @@
+outs:
+- md5: 576b7399361712f30916c7c6e013564c
+  size: 38349830
+  hash: md5
+  path: ecommerce_chatbot_train.csv
