@@ -7,9 +7,9 @@ data:
 
 # Sampling options
 sampling:
-  sample_size: 10 # Number of rows to include (set to null for all rows)
+  sample_size: null # Number of rows to include (set to null for all rows)
   random_state: 42 # Random seed for reproducibility
-  sample_description: "small_dataset_for_testing_pipeline" # Description for the filename
+  sample_description: "fine_tuning_dataset" # Description for the filename
 
 # Text cleaning options
 text_cleaning:
@@ -17,61 +17,3 @@ text_cleaning:
   remove_html: true
   remove_special_chars: true
   collapse_whitespace: true
-
-# Feature engineering options
-feature_engineering:
-  extract_language_features: true
-  create_category_encodings: true
-  add_question_features: true
-  add_ecommerce_keyword_features: true
-  add_sentiment_indicators: true
-
-# E-commerce specific keywords
-ecommerce_keywords:
-  price:
-    - "price"
-    - "cost"
-    - "expensive"
-    - "cheap"
-  shipping:
-    - "shipping"
-    - "delivery"
-    - "ship"
-    - "track"
-  payment:
-    - "pay"
-    - "payment"
-    - "card"
-    - "refund"
-  product:
-    - "product"
-    - "item"
-    - "order"
-    - "cart"
-  return:
-    - "return"
-    - "exchange"
-    - "refund"
-    - "cancel"
-
-# Sentiment indicators
-sentiment_words:
-  positive:
-    - "please"
-    - "thank"
-    - "good"
-    - "great"
-    - "help"
-  negative:
-    - "bad"
-    - "wrong"
-    - "issue"
-    - "problem"
-    - "error"
-    - "complaint"
-  urgency:
-    - "urgent"
-    - "asap"
-    - "emergency"
-    - "immediately"
-    - "quick"

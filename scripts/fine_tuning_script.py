@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 # scripts/fine_tuning_script.py
-import sys
 import os
+# Fix tokenizers parallelism warning
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+import sys
 from datetime import datetime
 import json
 import yaml
@@ -88,21 +91,83 @@ def main(args):
         # Load model and tokenizer
         model_name = config.get('model', {}).get('base_model', "EleutherAI/gpt-neo-125m")
         print(f"Loading base model: {model_name}")
-        model, tokenizer = load_model_and_tokenizer(
-            model_name,
-            load_in_8bit=device_config["use_8bit"],
-            torch_dtype=device_config["torch_dtype"],
-            device_map=device_config["device_map"]
-        )
-        
-        # Setup LoRA
-        lora_config = get_lora_config(
-            r=config.get('lora', {}).get('r', 8),
-            lora_alpha=config.get('lora', {}).get('alpha', 32),
-            lora_dropout=config.get('lora', {}).get('dropout', 0.05),
-            target_modules=config.get('lora', {}).get('target_modules')
-        )
-        model = prepare_model_for_lora(model, lora_config)
+        try:
+            model, tokenizer = load_model_and_tokenizer(
+                model_name,
+                load_in_8bit=device_config["use_8bit"],
+                torch_dtype=device_config["torch_dtype"],
+                device_map=device_config["device_map"]
+            )
+            
+            # Setup LoRA
+            lora_config = get_lora_config(
+                r=config.get('lora', {}).get('r', 8),
+                lora_alpha=config.get('lora', {}).get('alpha', 32),
+                lora_dropout=config.get('lora', {}).get('dropout', 0.05),
+                target_modules=config.get('lora', {}).get('target_modules')
+            )
+            model = prepare_model_for_lora(model, lora_config)
+            
+            # Ensure model is properly moved from meta device to target device
+            target_device = "cpu" if device_config["device_map"] == "cpu" else "cuda"
+            try:
+                # Check if model is on meta device and needs to be moved
+                if hasattr(model, 'is_meta') and model.is_meta:
+                    model = model.to(device=target_device)
+                elif next(model.parameters()).device.type == "meta":
+                    model = model.to(device=target_device)
+            except Exception as device_error:
+                print(f"Warning: Could not move model to {target_device}: {device_error}")
+                # If to fails, try forcing CPU
+                model = model.cpu()
+                
+        except Exception as e:
+            if "libcudart.so" in str(e) and "cannot open shared object file" in str(e):
+                print(f"CUDA library error: {str(e)}")
+                print("Retrying with CPU-only configuration...")
+                # Update device config to use CPU
+                device_config["use_8bit"] = False
+                device_config["use_fp16"] = False
+                device_config["torch_dtype"] = None
+                device_config["device_map"] = "cpu"
+                
+                # Try loading again with CPU settings
+                model, tokenizer = load_model_and_tokenizer(
+                    model_name,
+                    load_in_8bit=False,
+                    torch_dtype=None,
+                    device_map="cpu"
+                )
+                
+                # Setup LoRA for CPU
+                lora_config = get_lora_config(
+                    r=config.get('lora', {}).get('r', 8),
+                    lora_alpha=config.get('lora', {}).get('alpha', 32),
+                    lora_dropout=config.get('lora', {}).get('dropout', 0.05),
+                    target_modules=config.get('lora', {}).get('target_modules')
+                )
+                # Set inference_mode to False for training
+                lora_config.inference_mode = False
+                model = prepare_model_for_lora(model, lora_config)
+                
+                # Ensure model is properly moved from meta device to CPU
+                try:
+                    # Check if model is on meta device and needs to be moved
+                    if hasattr(model, 'is_meta') and model.is_meta:
+                        model = model.to(device="cpu")
+                    elif next(model.parameters()).device.type == "meta":
+                        model = model.to(device="cpu")
+                except Exception as device_error:
+                    print(f"Warning: Could not move model to CPU: {device_error}")
+                    # If to fails, try forcing CPU
+                    model = model.cpu()
+                
+                # Update training args for CPU
+                config['training']['fp16'] = False
+                config['training']['bf16'] = False
+            else:
+                # Re-raise if not a CUDA library error
+                raise
         
         # Log model info
         mlflow_log_model_info(model)
@@ -132,9 +197,8 @@ def main(args):
         tokenized_dataset = prepare_dataset(
             dataset_path, 
             tokenizer, 
-            config.get('training', {}).get('max_length', 512),
-            config.get('data', {}).get('instruction_column', 'instruction'),
-            config.get('data', {}).get('response_column', 'response')
+            config.get('training', {}).get('max_length', 1024),  # Increased for TinyLlama
+            config.get('data', {}).get('text_column', 'text')  # Use text column
         )
         
         # Split dataset
@@ -156,6 +220,21 @@ def main(args):
         # Update training arguments from config
         training_args = update_training_args_from_config(training_args, config)
         
+        # If using CPU, adjust training arguments accordingly
+        if device_config["device_map"] == "cpu":
+            print("Using CPU for training, adjusting training parameters...")
+            training_args.fp16 = False
+            training_args.bf16 = False
+            training_args.gradient_checkpointing = False
+            # Use smaller batch size if on CPU
+            if training_args.per_device_train_batch_size > 2:
+                print(f"Reducing batch size from {training_args.per_device_train_batch_size} to 2 for CPU training")
+                training_args.per_device_train_batch_size = 2
+                training_args.per_device_eval_batch_size = 2
+            # Increase gradient accumulation to compensate for smaller batch size
+            training_args.gradient_accumulation_steps = max(4, training_args.gradient_accumulation_steps * 2)
+            print(f"Increased gradient accumulation steps to {training_args.gradient_accumulation_steps}")
+        
         # Data collator
         data_collator = get_data_collator(tokenizer)
         
@@ -167,6 +246,32 @@ def main(args):
             eval_dataset=eval_dataset,
             data_collator=data_collator
         )
+        
+        # add debug info before trainer = Trainer(...)
+
+        print("=== debug info ===")
+        print("check trainable parameters:")
+        trainable_params = 0
+        total_params = 0
+        for name, param in model.named_parameters():
+            total_params += param.numel()
+            if param.requires_grad:
+                trainable_params += param.numel()
+                print(f"✅ trainable: {name} - {param.shape}")
+            else:
+                print(f"❌ frozen: {name} - {param.shape}")
+
+        print(f"trainable parameters: {trainable_params:,}")
+        print(f"total parameters: {total_params:,}")
+        print(f"trainable ratio: {100 * trainable_params / total_params:.2f}%")
+
+        # check data sample
+        print("\ncheck data sample:")
+        sample_batch = next(iter(trainer.get_train_dataloader()))
+        print(f"input_ids shape: {sample_batch['input_ids'].shape}")
+        print(f"labels shape: {sample_batch['labels'].shape}")
+        print(f"non-100 labels: {(sample_batch['labels'] != -100).sum().item()}")
+        print("=== debug info end ===\n")
         
         # Train model
         print("Starting training...")

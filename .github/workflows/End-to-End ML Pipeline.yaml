@@ -1,0 +1,241 @@
+name: End-to-End ML Pipeline
+
+on:
+  push:
+    branches-ignore:
+      - main
+      - master
+  workflow_dispatch:
+    inputs:
+      force_run:
+        description: "Force run even if branch is main/master"
+        required: false
+        default: false
+        type: boolean
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+
+env:
+  PYTHON_VERSION: "3.9"
+  DVC_CACHE_TYPE: "s3"
+  # Add your environment variables here
+  DAGSHUB_USER_TOKEN: ${{ secrets.DAGSHUB_USER_TOKEN }}
+  MLFLOW_TRACKING_URI: "https://dagshub.com/ShenghaoisYummy/E-commerce-Chatbot.mlflow"
+  MLFLOW_TRACKING_USERNAME: ${{ secrets.DAGSHUB_USERNAME }}
+  MLFLOW_TRACKING_PASSWORD: ${{ secrets.DAGSHUB_TOKEN }}
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+      branch_name: ${{ steps.branch.outputs.branch_name }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get branch name
+        id: branch
+        run: echo "branch_name=${GITHUB_REF#refs/heads/}" >> $GITHUB_OUTPUT
+
+      - name: Check if should run
+        id: check
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/main" || "${{ github.ref }}" == "refs/heads/master" ]] && [[ "${{ github.event.inputs.force_run }}" != "true" ]]; then
+            echo "should_run=false" >> $GITHUB_OUTPUT
+            echo "Skipping pipeline on main/master branch"
+          else
+            echo "should_run=true" >> $GITHUB_OUTPUT
+          fi
+
+  end-to-end-ml-pipeline:
+    needs: setup
+    if: needs.setup.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetch full history for DVC
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Configure Git for DVC
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Setup DVC with credentials
+        run: |
+          # Set up DVC remote credentials if needed
+          # Add your S3/remote storage credentials here
+          if [ -n "${{ secrets.AWS_ACCESS_KEY_ID }}" ]; then
+            dvc remote modify storage --local access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }}
+            dvc remote modify storage --local secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          fi
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Pull latest data with DVC
+        run: |
+          echo "Pulling latest data from DVC remote..."
+          dvc pull --force || echo "DVC pull failed, continuing with existing data"
+
+      - name: Run data preprocessing
+        run: |
+          echo "Starting data preprocessing..."
+          python scripts/data_prep_script.py
+          echo "Data preprocessing completed"
+
+      - name: Check preprocessing outputs
+        run: |
+          echo "Checking preprocessing outputs..."
+          ls -la data/processed/
+          if [ -f "data/processed/latest_dataset_ref.json" ]; then
+            echo "✅ Dataset reference file created successfully"
+            cat data/processed/latest_dataset_ref.json
+          else
+            echo "❌ Dataset reference file not found"
+            exit 1
+          fi
+
+      - name: Run hyperparameter optimization
+        run: |
+          echo "Starting HPO..."
+          python scripts/hpo_script.py \
+            --config params.yaml \
+            --train-data data/processed/latest_dataset_ref.json \
+            --eval-data data/evaluation/evaluation_10rows.csv \
+            --n-trials 5 \
+            --n-jobs 1 \
+            --mlflow-uri ${{ env.MLFLOW_TRACKING_URI }}
+          echo "HPO completed"
+
+      - name: Verify parameter updates
+        run: |
+          echo "Checking if params.yaml was updated by HPO..."
+          git status
+          if git diff --quiet params.yaml; then
+            echo "⚠️  params.yaml was not modified by HPO"
+          else
+            echo "✅ params.yaml was updated with best parameters"
+            echo "Changes in params.yaml:"
+            git diff params.yaml
+          fi
+
+      - name: Commit parameter updates
+        run: |
+          if ! git diff --quiet params.yaml; then
+            echo "Committing updated parameters..."
+            git add params.yaml
+            git commit -m "Update parameters from HPO on branch ${{ needs.setup.outputs.branch_name }}"
+          else
+            echo "No parameter updates to commit"
+          fi
+
+      - name: Run DVC pipeline reproduction
+        run: |
+          echo "Running DVC pipeline reproduction..."
+          dvc repro --force
+          echo "DVC reproduction completed"
+
+      - name: Check pipeline outputs
+        run: |
+          echo "Checking pipeline outputs..."
+          dvc status
+          ls -la results/
+
+      - name: Add pipeline outputs to DVC
+        run: |
+          echo "Adding new outputs to DVC tracking..."
+          dvc add results/ --force || echo "No new results to add to DVC"
+
+      - name: Commit DVC changes
+        run: |
+          echo "Committing DVC changes..."
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "Update DVC pipeline outputs from feature development on ${{ needs.setup.outputs.branch_name }}"
+          else
+            echo "No DVC changes to commit"
+          fi
+
+      - name: Push data to DVC remote
+        run: |
+          echo "Pushing data to DVC remote..."
+          dvc push || echo "DVC push failed, some data might not be uploaded"
+
+      - name: Push changes to repository
+        run: |
+          echo "Pushing changes back to repository..."
+          git push origin ${{ needs.setup.outputs.branch_name }}
+
+      - name: Create pipeline summary
+        run: |
+          echo "## 🚀 Feature Development Pipeline Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** ${{ needs.setup.outputs.branch_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Timestamp:** $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### ✅ Completed Steps:" >> $GITHUB_STEP_SUMMARY
+          echo "- Data preprocessing" >> $GITHUB_STEP_SUMMARY
+          echo "- Hyperparameter optimization" >> $GITHUB_STEP_SUMMARY
+          echo "- Parameter updates" >> $GITHUB_STEP_SUMMARY
+          echo "- DVC pipeline reproduction" >> $GITHUB_STEP_SUMMARY
+          echo "- Data synchronization" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ -f "results/fine_tuned_model_location.json" ]; then
+            echo "### 📊 Model Training Results:" >> $GITHUB_STEP_SUMMARY
+            echo "- Model artifact: \`$(cat results/fine_tuned_model_location.json | jq -r '.artifact_path' 2>/dev/null || echo 'Available')\`" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ -f "results/evaluations/metrics.json" ]; then
+            echo "### 📈 Evaluation Metrics:" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`json" >> $GITHUB_STEP_SUMMARY
+            head -20 results/evaluations/metrics.json >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pipeline-outputs-${{ needs.setup.outputs.branch_name }}
+          path: |
+            results/
+            data/processed/latest_dataset_ref.json
+            params.yaml
+          retention-days: 30
+
+  cleanup:
+    needs: [setup, end-to-end-ml-pipeline]
+    if: always() && needs.setup.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cleanup workspace
+        run: |
+          echo "Pipeline completed for branch: ${{ needs.setup.outputs.branch_name }}"
+          echo "Status: ${{ needs.feature-pipeline.result }}"

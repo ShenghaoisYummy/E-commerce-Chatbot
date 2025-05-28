@@ -4,13 +4,15 @@ stages:
     deps:
       - scripts/data_prep_script.py
       - src/data_prep.py
-      - data/raw/bitext-retail-ecommerce-llm-chatbot-training-dataset.csv
+      - data/raw/ecommerce_chatbot_train.csv
       - configs/data_prep_config.yaml
     params:
       - sampling.sample_size
       - sampling.sample_description
     outs:
       - data/processed/latest_dataset_ref.json:
+          persist: true
+      - data/processed/chatml_dataset_fine_tuning_dataset.jsonl:
           persist: true
 
   fine_tuning:
@@ -25,6 +27,7 @@ stages:
       - src/fine_tuning.py
       - params.yaml
       - data/processed/latest_dataset_ref.json
+      - data/processed/chatml_dataset_fine_tuning_dataset.jsonl
     params:
       - model
       - lora
@@ -37,7 +40,7 @@ stages:
   evaluation:
     cmd: >-
       python scripts/evaluation_script.py 
-      --eval-dataset-path data/evaluation/evaluation_10rows.csv
+      --eval-dataset-path data/evaluation/chatml_dataset_eval_dataset.jsonl
       --model-artifact-path results/fine_tuned_model_location.json
       --output-dir results/evaluations
       --config params.yaml
@@ -45,7 +48,7 @@ stages:
     deps:
       - scripts/evaluation_script.py
       - src/evaluation.py
-      - data/evaluation/evaluation_10rows.csv
+      - data/evaluation/chatml_dataset_eval_dataset.jsonl
       - results/fine_tuned_model_location.json
     params:
       - evaluation

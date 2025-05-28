@@ -16,11 +16,9 @@ from utils.mlflow_utils import mlflow_setup_tracking
 from src.fine_tuning import (
     load_model_and_tokenizer,
     prepare_model_for_lora,
-    prepare_dataset,
     get_training_args,
     get_data_collator,
     get_lora_config,
-    update_training_args_from_config
 )
 from transformers import Trainer
 from src.evaluation import evaluate_model
@@ -53,7 +51,7 @@ def objective(trial: optuna.Trial, base_config: Dict[Any, Any], train_dataset: A
             'dropout': trial.suggest_float('lora_dropout', 0.05, 0.2)
         },
         'training': {
-            'learning_rate': trial.suggest_float('learning_rate', 1e-5, 1e-3, log=True),
+            'learning_rate': trial.suggest_float('learning_rate', 1e-5, 5e-5, log=True),
             'weight_decay': trial.suggest_float('weight_decay', 1e-6, 1e-4, log=True),
             'batch_size': trial.suggest_int('batch_size', 1, 4),
             'gradient_accumulation_steps': trial.suggest_int('gradient_accumulation_steps', 1, 4),
@@ -66,45 +64,69 @@ def objective(trial: optuna.Trial, base_config: Dict[Any, Any], train_dataset: A
     config['lora'].update(hparams['lora'])
     config['training'].update(hparams['training'])
     
-    # Configure device settings
-    device_settings = configure_device_settings(config)
-    
     # Create unique run name and output directory
     run_name = f"hpo_trial_{trial.number}"
     output_dir = f"results/hpo_trial_{trial.number}"
     os.makedirs(output_dir, exist_ok=True)
     
     try:
-        # Load model and tokenizer with proper device settings
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        
+        # Load model and tokenizer
+        # Let model load on default device (CPU if device_map is None or not specified)
+        # The load_model_and_tokenizer function in fine_tuning.py has device_map="auto" as default
+        # "auto" should be fine, but we will explicitly move it after loading.
         model, tokenizer = load_model_and_tokenizer(
             config['model']['base_model'],
-            load_in_8bit=device_settings['use_8bit'],
-            torch_dtype=device_settings['torch_dtype'],
-            device_map=device_settings['device_map']
+            load_in_8bit=False,
+            torch_dtype=torch.float32,
+            device_map=None # Explicitly set to None to load to CPU/default first
         )
         
-        # Prepare model with LoRA
-        lora_config = get_lora_config(
-            r=config['lora']['r'],
-            lora_alpha=config['lora']['alpha'],
-            lora_dropout=config['lora']['dropout'],
-            target_modules=config['lora']['target_modules']
-        )
-        model = prepare_model_for_lora(model, lora_config)
+        # Explicitly move the entire model to the target device *before* PEFT
+        model = model.to(device)
+        logger.info(f"Base model moved to device: {next(model.parameters()).device}")
         
-        # Get training arguments
+        # Prepare model for LoRA
+        try:
+            lora_config = get_lora_config(
+                r=config['lora']['r'],
+                lora_alpha=config['lora']['alpha'],
+                lora_dropout=config['lora']['dropout'],
+                target_modules=config['lora']['target_modules']
+            )
+            # inference_mode is already False in get_lora_config
+            
+            # Call prepare_model_for_lora from fine_tuning.py
+            # This function internally calls get_peft_model
+            model = prepare_model_for_lora(model, lora_config)
+            
+            # Re-affirm model device after LoRA, though prepare_model_for_lora should handle it.
+            model = model.to(device)
+            logger.info(f"LoRA model finalized on device: {next(model.parameters()).device}")
+            
+        except Exception as e:
+            logger.error(f"Error during LoRA preparation in HPO Trial {trial.number}: {str(e)}")
+            logger.exception("Full traceback for LoRA preparation error:") # Log full traceback
+            raise optuna.TrialPruned() # Prune the trial
+        
+        # Get training arguments with reduced complexity for HPO
         training_args = get_training_args(
             output_dir=output_dir,
-            num_epochs=config['training']['epochs'],
+            num_epochs=1,  # Use only 1 epoch for HPO to speed up
             batch_size=config['training']['batch_size'],
             gradient_accumulation_steps=config['training']['gradient_accumulation_steps']
         )
         
-        # Update training args with device settings
-        training_args.fp16 = device_settings['use_fp16']
-        update_training_args_from_config(training_args, config)
+        training_args.fp16 = False
+        training_args.bf16 = False
+        training_args.gradient_checkpointing = False
+        training_args.dataloader_num_workers = 0
         
-        # Create trainer
+        training_args.learning_rate = config['training']['learning_rate']
+        training_args.weight_decay = config['training']['weight_decay']
+        training_args.warmup_steps = config['training']['warmup_steps']
+        
         trainer = Trainer(
             model=model,
             args=training_args,
@@ -113,21 +135,15 @@ def objective(trial: optuna.Trial, base_config: Dict[Any, Any], train_dataset: A
             data_collator=get_data_collator(tokenizer)
         )
         
-        # Train model
         trainer.train()
         
-        # Use custom evaluation with raw data
         logger.info(f"Running custom evaluation for trial {trial.number}...")
         custom_metrics, results_df = evaluate_model(model, tokenizer, eval_raw_data, config)
-        
-        # Save evaluation results
         results_df.to_csv(f"{output_dir}/evaluation_results.csv", index=False)
         
-        # Calculate combined score
         combined_score = calculate_combined_score(custom_metrics)
         logger.info(f"Trial {trial.number} completed with score: {combined_score}")
         
-        # Log metrics in the parent run
         with mlflow.start_run(run_name=run_name, nested=True):
             mlflow.log_params(trial.params)
             mlflow.log_metrics({
@@ -135,19 +151,29 @@ def objective(trial: optuna.Trial, base_config: Dict[Any, Any], train_dataset: A
                 'bleu4': custom_metrics.get('bleu4', 0),
                 'rouge_l_f': custom_metrics.get('rougeL_fmeasure', 0)
             })
-            
-            # Log detailed metrics
             for metric_name, metric_value in custom_metrics.items():
                 mlflow.log_metric(metric_name, metric_value)
-            
-            # Log evaluation results file
             mlflow.log_artifact(f"{output_dir}/evaluation_results.csv")
+        
+        del model, trainer
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         
         return combined_score
         
+    except optuna.TrialPruned: # Catch prune explicitly
+        logger.warning(f"Trial {trial.number} was pruned.")
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        raise # Re-raise to let Optuna handle it
     except Exception as e:
-        logger.error(f"Trial {trial.number} failed: {str(e)}")
-        raise optuna.TrialPruned()
+        logger.error(f"Critical error in HPO Trial {trial.number}: {str(e)}")
+        logger.exception("Full traceback for critical trial error:") # Log full traceback
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        # For other critical errors, also prune or let Optuna decide based on error type
+        # Returning float('-inf') or raising TrialPruned are common.
+        raise optuna.TrialPruned(f"Critical error: {str(e)}")
 
 def run_hpo(train_dataset: Any, eval_tokenized_dataset: Any, eval_raw_data: pd.DataFrame, n_trials: int = 20, n_jobs: int = 4, config: Dict[Any, Any] = None) -> Dict[str, Any]:
     """Run hyperparameter optimization"""
@@ -158,6 +184,19 @@ def run_hpo(train_dataset: Any, eval_tokenized_dataset: Any, eval_raw_data: pd.D
     
     mlflow_setup_tracking(config)
     
+    # Check for CUDA availability and show warning if issues detected
+    try:
+        if torch.cuda.is_available():
+            # Test CUDA functionality
+            logger.info(f"CUDA is available. Device count: {torch.cuda.device_count()}")
+            logger.info(f"Current CUDA device: {torch.cuda.current_device()}")
+            logger.info(f"Device name: {torch.cuda.get_device_name(0)}")
+        else:
+            logger.warning("CUDA is not available. Training will be slower on CPU.")
+    except Exception as e:
+        logger.warning(f"Error checking CUDA availability: {str(e)}")
+        logger.warning("This may indicate issues with CUDA libraries. Attempting to continue...")
+    
     # Create Optuna study
     study_name = f"chatbot_hpo_{int(time.time())}"
     study = optuna.create_study(
@@ -166,16 +205,29 @@ def run_hpo(train_dataset: Any, eval_tokenized_dataset: Any, eval_raw_data: pd.D
         pruner=optuna.pruners.MedianPruner()
     )
     
+    # Define a safe wrapper for the objective function
+    def safe_objective(trial, config, train_dataset, eval_tokenized_dataset, eval_raw_data):
+        try:
+            return objective(trial, config, train_dataset, eval_tokenized_dataset, eval_raw_data)
+        except Exception as e:
+            logger.error(f"Trial {trial.number} failed with error: {str(e)}")
+            if "Cannot copy out of meta tensor" in str(e):
+                logger.error("Meta tensor error detected. This is likely a device transfer issue.")
+                logger.error("Recommendations:")
+                logger.error("1. Set device_map='meta' when loading models")
+                logger.error("2. Use to() for meta tensors")
+                logger.error("3. Reduce batch size or model size if memory is an issue")
+            return float('-inf')  # Return worst possible score
+    
     # Start parent MLflow run
     with mlflow.start_run(run_name="hpo_experiment") as parent_run:
         try:
             # Run optimization with parallel workers
             study.optimize(
-                lambda trial: objective(trial, config, train_dataset, eval_tokenized_dataset, eval_raw_data),
+                lambda trial: safe_objective(trial, config, train_dataset, eval_tokenized_dataset, eval_raw_data),
                 n_trials=n_trials,
                 n_jobs=n_jobs,
-                timeout=None,
-                catch=(Exception,)
+                timeout=None
             )
             
             completed_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]

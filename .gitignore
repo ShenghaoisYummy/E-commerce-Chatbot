@@ -1,6 +1,5 @@
 # DVC controlled files
 results/
-
 # Model and data artifacts
 *.bin
 *.pt
@@ -13,7 +12,7 @@ mlflow/
 mlruns/
 .dvc/
 *.dvc
-/data
+# /data
 
 # Python
 src/__pycache__/
