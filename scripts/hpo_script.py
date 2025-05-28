@@ -79,7 +79,7 @@ def main():
         config['model']['base_model'],
         load_in_8bit=config['model'].get('load_in_8bit', False),
         torch_dtype=getattr(torch, config['model'].get('precision', 'float32')),
-        device_map="auto"
+        device_map="cuda"
     )
     
     # Prepare datasets
