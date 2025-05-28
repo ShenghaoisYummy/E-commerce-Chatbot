@@ -46,16 +46,16 @@ stages:
       size: 209
     - path: params.yaml
       hash: md5
-      md5: 7977460792ec4768e2335a12b7befb8a
-      size: 1295
+      md5: 371e3cc73534ac42ac8968f7690760fb
+      size: 1296
     - path: scripts/fine_tuning_script.py
       hash: md5
-      md5: 5f9133683fe9136cd1aa6c4a024a6794
-      size: 11738
+      md5: 1afd7a22b327a82ebeb5e6142167fcea
+      size: 12895
     - path: src/fine_tuning.py
       hash: md5
-      md5: 5b49a91161623024762e75040159bc70
-      size: 16664
+      md5: 35fe0134ffd6c59852b682928e0ade47
+      size: 15966
     params:
       params.yaml:
         data:
@@ -86,10 +86,10 @@ stages:
           epochs: 2
           batch_size: 4
           gradient_accumulation_steps: 4
-          learning_rate: 0.0002
+          learning_rate: 0.0005
           weight_decay: 0.01
           warmup_steps: 100
-          max_length: 1024
+          max_length: 512
           fp16: true
           bf16: false
           eval_strategy: epoch
@@ -99,8 +99,8 @@ stages:
     outs:
     - path: results/fine_tuned_model_location.json
       hash: md5
-      md5: 7df1763e86a2d0dfba444cf45e55b8f8
-      size: 255
+      md5: cbe0f90a400db3eca8e138eeb93cbcc1
+      size: 281
   evaluation:
     cmd: python scripts/evaluation_script.py  --eval-dataset-path data/evaluation/chatml_dataset_eval_dataset.jsonl
       --model-artifact-path results/fine_tuned_model_location.json --output-dir results/evaluations
