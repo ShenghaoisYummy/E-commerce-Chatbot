@@ -2,7 +2,7 @@
 
 # Input/output paths
 data:
-  input_path: "data/raw/bitext-retail-ecommerce-llm-chatbot-training-dataset.csv"
+  input_path: "data/raw/ecommerce_chatbot_train.csv"
   output_dir: "data/processed"
 
 # Sampling options

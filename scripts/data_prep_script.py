@@ -36,7 +36,7 @@ def main():
             # Get sample description from config
             sample_description = config.get('sampling', {}).get('sample_description', "")
             # Get input and output paths
-            input_path = args.input_path or config.get('data', {}).get('input_path', "data/raw/bitext-retail-ecommerce-llm-chatbot-training-dataset.csv")
+            input_path = args.input_path or config.get('data', {}).get('input_path', "data/raw/ecommerce_chatbot_train.csv")
             output_dir = args.output_dir or config.get('data', {}).get('output_dir', "data/processed")
         
         print(f"Using configuration from: {config_path}")
