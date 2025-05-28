@@ -46,6 +46,8 @@ def parse_args():
     parser.add_argument("--config", type=str, default="params.yaml", help="Path to YAML config file defining evaluation options")
     parser.add_argument("--mlflow-uri", type=str, default="", help="MLflow Tracking Server URI")
     parser.add_argument("--eval-size", type=int, default=100, help="Number of samples to evaluate (for faster testing)")
+    parser.add_argument("--use-base-model", action="store_true", help="Use base model only (skip fine-tuned model)")
+
     return parser.parse_args()      
 
 def load_chatml_dataset(data_path, eval_size=None):
@@ -84,6 +86,12 @@ def main(args):
         
         # Check if we should use DagShub for model loading
         use_dagshub = config.get('evaluation', {}).get('use_dagshub', True)
+        if args.use_base_model:
+            use_dagshub = False
+            print("Using base model only (skipping fine-tuned model)")
+        else:
+            print("Using fine-tuned model")
+
         model_location_file = args.model_artifact_path
         
         if use_dagshub and os.path.exists(model_location_file):
