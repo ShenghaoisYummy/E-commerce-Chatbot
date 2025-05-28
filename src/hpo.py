@@ -70,40 +70,45 @@ def objective(trial: optuna.Trial, base_config: Dict[Any, Any], train_dataset: A
     os.makedirs(output_dir, exist_ok=True)
     
     try:
-        # 🔧 FIX: Use explicit device placement to avoid meta tensor issues
         device = "cuda" if torch.cuda.is_available() else "cpu"
         
-        # Load model and tokenizer with explicit device placement
+        # Load model and tokenizer
+        # Let model load on default device (CPU if device_map is None or not specified)
+        # The load_model_and_tokenizer function in fine_tuning.py has device_map="auto" as default
+        # "auto" should be fine, but we will explicitly move it after loading.
         model, tokenizer = load_model_and_tokenizer(
             config['model']['base_model'],
-            load_in_8bit=False,  # Disable 8-bit for HPO to avoid meta tensor issues
-            torch_dtype=torch.float32,  # Use float32 for stability
-            device_map=None  # Don't use auto device mapping
+            load_in_8bit=False,
+            torch_dtype=torch.float32,
+            device_map=None # Explicitly set to None to load to CPU/default first
         )
         
-        # Explicitly move model to device
+        # Explicitly move the entire model to the target device *before* PEFT
         model = model.to(device)
+        logger.info(f"Base model moved to device: {next(model.parameters()).device}")
         
         # Prepare model for LoRA
         try:
-            # Prepare model with LoRA
             lora_config = get_lora_config(
                 r=config['lora']['r'],
                 lora_alpha=config['lora']['alpha'],
                 lora_dropout=config['lora']['dropout'],
                 target_modules=config['lora']['target_modules']
             )
-            # Set inference_mode=False for training
-            lora_config.inference_mode = False
+            # inference_mode is already False in get_lora_config
+            
+            # Call prepare_model_for_lora from fine_tuning.py
+            # This function internally calls get_peft_model
             model = prepare_model_for_lora(model, lora_config)
             
-            # Ensure model is on the correct device after LoRA
+            # Re-affirm model device after LoRA, though prepare_model_for_lora should handle it.
             model = model.to(device)
-            logger.info(f"Model loaded on device: {next(model.parameters()).device}")
+            logger.info(f"LoRA model finalized on device: {next(model.parameters()).device}")
             
         except Exception as e:
-            logger.error(f"Error preparing model: {str(e)}")
-            raise optuna.TrialPruned()
+            logger.error(f"Error during LoRA preparation in HPO Trial {trial.number}: {str(e)}")
+            logger.exception("Full traceback for LoRA preparation error:") # Log full traceback
+            raise optuna.TrialPruned() # Prune the trial
         
         # Get training arguments with reduced complexity for HPO
         training_args = get_training_args(
@@ -113,18 +118,15 @@ def objective(trial: optuna.Trial, base_config: Dict[Any, Any], train_dataset: A
             gradient_accumulation_steps=config['training']['gradient_accumulation_steps']
         )
         
-        # Update training args - disable fp16 for stability during HPO
         training_args.fp16 = False
         training_args.bf16 = False
-        training_args.gradient_checkpointing = False  # Disable for HPO
-        training_args.dataloader_num_workers = 0  # Avoid multiprocessing issues
+        training_args.gradient_checkpointing = False
+        training_args.dataloader_num_workers = 0
         
-        # Update other training args from config
         training_args.learning_rate = config['training']['learning_rate']
         training_args.weight_decay = config['training']['weight_decay']
         training_args.warmup_steps = config['training']['warmup_steps']
         
-        # Create trainer
         trainer = Trainer(
             model=model,
             args=training_args,
@@ -133,21 +135,15 @@ def objective(trial: optuna.Trial, base_config: Dict[Any, Any], train_dataset: A
             data_collator=get_data_collator(tokenizer)
         )
         
-        # Train model
         trainer.train()
         
-        # Use custom evaluation with raw data
         logger.info(f"Running custom evaluation for trial {trial.number}...")
         custom_metrics, results_df = evaluate_model(model, tokenizer, eval_raw_data, config)
-        
-        # Save evaluation results
         results_df.to_csv(f"{output_dir}/evaluation_results.csv", index=False)
         
-        # Calculate combined score
         combined_score = calculate_combined_score(custom_metrics)
         logger.info(f"Trial {trial.number} completed with score: {combined_score}")
         
-        # Log metrics in the parent run
         with mlflow.start_run(run_name=run_name, nested=True):
             mlflow.log_params(trial.params)
             mlflow.log_metrics({
@@ -155,25 +151,29 @@ def objective(trial: optuna.Trial, base_config: Dict[Any, Any], train_dataset: A
                 'bleu4': custom_metrics.get('bleu4', 0),
                 'rouge_l_f': custom_metrics.get('rougeL_fmeasure', 0)
             })
-            
-            # Log detailed metrics
             for metric_name, metric_value in custom_metrics.items():
                 mlflow.log_metric(metric_name, metric_value)
-            
-            # Log evaluation results file
             mlflow.log_artifact(f"{output_dir}/evaluation_results.csv")
         
-        # Clean up GPU memory
         del model, trainer
-        torch.cuda.empty_cache() if torch.cuda.is_available() else None
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         
         return combined_score
         
+    except optuna.TrialPruned: # Catch prune explicitly
+        logger.warning(f"Trial {trial.number} was pruned.")
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        raise # Re-raise to let Optuna handle it
     except Exception as e:
-        logger.error(f"Trial {trial.number} failed: {str(e)}")
-        # Clean up on failure
-        torch.cuda.empty_cache() if torch.cuda.is_available() else None
-        raise optuna.TrialPruned()
+        logger.error(f"Critical error in HPO Trial {trial.number}: {str(e)}")
+        logger.exception("Full traceback for critical trial error:") # Log full traceback
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        # For other critical errors, also prune or let Optuna decide based on error type
+        # Returning float('-inf') or raising TrialPruned are common.
+        raise optuna.TrialPruned(f"Critical error: {str(e)}")
 
 def run_hpo(train_dataset: Any, eval_tokenized_dataset: Any, eval_raw_data: pd.DataFrame, n_trials: int = 20, n_jobs: int = 4, config: Dict[Any, Any] = None) -> Dict[str, Any]:
     """Run hyperparameter optimization"""
