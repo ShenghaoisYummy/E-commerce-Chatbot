@@ -12,6 +12,11 @@ on:
         required: false
         default: false
         type: boolean
+      force_deploy:
+        description: "Force deployment regardless of performance"
+        required: false
+        default: false
+        type: boolean
 permissions:
   contents: write
   pull-requests: write
@@ -20,11 +25,14 @@ permissions:
 env:
   PYTHON_VERSION: "3.9"
   DVC_CACHE_TYPE: "s3"
-  # Add your environment variables here
+  # MLflow and DagsHub configuration
   DAGSHUB_USER_TOKEN: ${{ secrets.DAGSHUB_USER_TOKEN }}
   MLFLOW_TRACKING_URI: "https://dagshub.com/ShenghaoisYummy/E-commerce-Chatbot.mlflow"
   MLFLOW_TRACKING_USERNAME: ${{ secrets.DAGSHUB_USERNAME }}
   MLFLOW_TRACKING_PASSWORD: ${{ secrets.DAGSHUB_TOKEN }}
+  # Hugging Face configuration
+  HF_TOKEN: ${{ secrets.HF_TOKEN }}
+  HUGGINGFACE_HUB_TOKEN: ${{ secrets.HF_TOKEN }}
 
 jobs:
   setup:
@@ -32,6 +40,7 @@ jobs:
     outputs:
       should_run: ${{ steps.check.outputs.should_run }}
       branch_name: ${{ steps.branch.outputs.branch_name }}
+      force_deploy: ${{ steps.inputs.outputs.force_deploy }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -39,6 +48,11 @@ jobs:
       - name: Get branch name
         id: branch
         run: echo "branch_name=${GITHUB_REF#refs/heads/}" >> $GITHUB_OUTPUT
+
+      - name: Get workflow inputs
+        id: inputs
+        run: |
+          echo "force_deploy=${{ github.event.inputs.force_deploy || 'false' }}" >> $GITHUB_OUTPUT
 
       - name: Check if should run
         id: check
@@ -54,7 +68,7 @@ jobs:
     needs: setup
     if: needs.setup.outputs.should_run == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
 
     steps:
       - name: Checkout code
@@ -167,6 +181,44 @@ jobs:
           dvc status
           ls -la results/
 
+      - name: Run deployment stage
+        run: |
+          echo "Starting deployment stage..."
+
+          # Set deployment flags
+          DEPLOY_FLAGS=""
+          if [ "${{ needs.setup.outputs.force_deploy }}" == "true" ]; then
+            DEPLOY_FLAGS="--force-deploy"
+            echo "🚀 Force deployment enabled"
+          fi
+
+          # Run deployment script
+          python scripts/deployment_script.py \
+            --evaluation-results results/evaluations/metrics.json \
+            --model-artifact-path results/fine_tuned_model_location.json \
+            --config params.yaml \
+            --output-dir results/deployment \
+            --min-improvement-threshold 0.001 \
+            --hf-model-id ShenghaoYummy/TinyLlama-ECommerce-Chatbot \
+            $DEPLOY_FLAGS
+
+          echo "Deployment stage completed"
+
+      - name: Check deployment results
+        run: |
+          echo "Checking deployment results..."
+          if [ -f "results/deployment/deployment_info.json" ]; then
+            echo "✅ Deployment info created successfully"
+            cat results/deployment/deployment_info.json
+          else
+            echo "❌ Deployment info not found"
+          fi
+
+          if [ -f "results/deployment/model_comparison.json" ]; then
+            echo "✅ Model comparison results available"
+            cat results/deployment/model_comparison.json
+          fi
+
       - name: Add pipeline outputs to DVC
         run: |
           echo "Adding new outputs to DVC tracking..."
@@ -177,7 +229,7 @@ jobs:
           echo "Committing DVC changes..."
           git add -A
           if ! git diff --cached --quiet; then
-            git commit -m "Update DVC pipeline outputs from feature development on ${{ needs.setup.outputs.branch_name }}"
+            git commit -m "Update DVC pipeline outputs with deployment from ${{ needs.setup.outputs.branch_name }}"
           else
             echo "No DVC changes to commit"
           fi
@@ -204,6 +256,8 @@ jobs:
           echo "- Hyperparameter optimization" >> $GITHUB_STEP_SUMMARY
           echo "- Parameter updates" >> $GITHUB_STEP_SUMMARY
           echo "- DVC pipeline reproduction" >> $GITHUB_STEP_SUMMARY
+          echo "- Model evaluation" >> $GITHUB_STEP_SUMMARY
+          echo "- Deployment decision" >> $GITHUB_STEP_SUMMARY
           echo "- Data synchronization" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
@@ -217,6 +271,21 @@ jobs:
             echo "\`\`\`json" >> $GITHUB_STEP_SUMMARY
             head -20 results/evaluations/metrics.json >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ -f "results/deployment/deployment_info.json" ]; then
+            echo "### 🚀 Deployment Results:" >> $GITHUB_STEP_SUMMARY
+            SHOULD_DEPLOY=$(cat results/deployment/deployment_info.json | jq -r '.should_deploy' 2>/dev/null || echo 'unknown')
+            MLFLOW_REGISTERED=$(cat results/deployment/deployment_info.json | jq -r '.mlflow_registered' 2>/dev/null || echo 'false')
+            HF_DEPLOYED=$(cat results/deployment/deployment_info.json | jq -r '.huggingface_deployed' 2>/dev/null || echo 'false')
+            
+            echo "- **Deployment Decision:** $SHOULD_DEPLOY" >> $GITHUB_STEP_SUMMARY
+            echo "- **MLflow Registered:** $MLFLOW_REGISTERED" >> $GITHUB_STEP_SUMMARY
+            echo "- **Hugging Face Deployed:** $HF_DEPLOYED" >> $GITHUB_STEP_SUMMARY
+            
+            if [ "$HF_DEPLOYED" == "true" ]; then
+              echo "- **Model URL:** https://huggingface.co/ShenghaoYummy/TinyLlama-ECommerce-Chatbot" >> $GITHUB_STEP_SUMMARY
+            fi
           fi
 
       - name: Upload artifacts
@@ -238,4 +307,4 @@ jobs:
       - name: Cleanup workspace
         run: |
           echo "Pipeline completed for branch: ${{ needs.setup.outputs.branch_name }}"
-          echo "Status: ${{ needs.feature-pipeline.result }}"
+          echo "Status: ${{ needs.end-to-end-ml-pipeline.result }}"

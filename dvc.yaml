@@ -48,9 +48,31 @@ stages:
     deps:
       - scripts/evaluation_script.py
       - src/evaluation.py
+      - src/model_selection.py
       - data/evaluation/chatml_dataset_eval_dataset.jsonl
       - results/fine_tuned_model_location.json
     params:
       - evaluation
     outs:
       - results/evaluations
+
+  deployment:
+    cmd: >-
+      python scripts/deployment_script.py
+      --evaluation-results results/evaluations/metrics.json
+      --model-artifact-path results/fine_tuned_model_location.json
+      --config params.yaml
+      --output-dir results/deployment
+      --min-improvement-threshold 0.001
+      --hf-model-id ShenghaoYummy/TinyLlama-ECommerce-Chatbot
+    deps:
+      - scripts/deployment_script.py
+      - src/model_selection.py
+      - results/evaluations/metrics.json
+      - results/fine_tuned_model_location.json
+      - params.yaml
+    params:
+      - mlflow.experiment_name
+      - mlflow.tracking_uri
+    outs:
+      - results/deployment

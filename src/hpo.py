@@ -34,11 +34,19 @@ def load_config() -> Dict[Any, Any]:
 
 
 def calculate_combined_score(metrics: Dict[str, float]) -> float:
-    """Calculate combined score from BLEU and ROUGE metrics"""
-    bleu_score = metrics.get('bleu4', 0)  # Using BLEU-4 score
-    rouge_score = metrics.get('rougeL_fmeasure', 0)  # Using ROUGE-L F-measure
-    # Equal weighting between BLEU and ROUGE-L
-    return (bleu_score + rouge_score) / 2
+    """
+    Calculate combined score from BLEU and ROUGE metrics using weighted scoring
+    """
+    try:
+        from src.model_selection import calculate_weighted_score
+        score, _ = calculate_weighted_score(metrics)
+        return score
+    except ImportError:
+        # Fallback to simple scoring if model_selection is not available
+        bleu_score = metrics.get('bleu4', 0)  # Using BLEU-4 score
+        rouge_score = metrics.get('rougeL_fmeasure', 0)  # Using ROUGE-L F-measure
+        # Equal weighting between BLEU and ROUGE-L
+        return (bleu_score + rouge_score) / 2
 
 def objective(trial: optuna.Trial, base_config: Dict[Any, Any], train_dataset: Any, eval_tokenized_dataset: Any, eval_raw_data: pd.DataFrame) -> float:
     """Optuna objective function for hyperparameter optimization"""

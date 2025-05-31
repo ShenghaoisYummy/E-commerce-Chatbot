@@ -1,11 +1,16 @@
 # DVC controlled files
 results/
+data/evaluation/chatml_dataset_eval_dataset.jsonl
+data/processed/chatml_dataset_fine_tuned_model.jsonl
+data/processed/latest_dataset_reference.jsonl
+
 # Model and data artifacts
 *.bin
 *.pt
 *.pth
 *.safetensors
 *.ckpt
+*.jsonl
 
 # MLflow and DVC
 mlflow/

@@ -61,6 +61,22 @@ evaluation:
     - "bleu"
     - "rouge"
 
+# Deployment configuration
+deployment:
+  min_improvement_threshold: 0.001 # Minimum improvement required for deployment
+  model_registry_name: "ecommerce-chatbot" # MLflow model registry name
+  huggingface:
+    model_id: "ShenghaoYummy/TinyLlama-ECommerce-Chatbot"
+    push_to_hub: true
+    create_model_card: true
+  weighted_scoring:
+    weights:
+      bleu1: 0.10 # 10% - Basic vocabulary coverage
+      bleu2: 0.15 # 15% - Phrase fluency
+      bleu3: 0.25 # 25% - Local grammar structure
+      bleu4: 0.40 # 40% - Overall quality (most important)
+      rougeL_precision: 0.10 # 10% - Long sequence precision
+
 # MLflow configuration
 mlflow:
   tracking_uri: "https://dagshub.com/ShenghaoisYummy/E-commerce-Chatbot.mlflow"
