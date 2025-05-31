@@ -114,10 +114,16 @@ dvc remote add -d storage s3://your-bucket/path
 
 ```bash
 # Create .env file with your credentials
+# Create .env file with your credentials
 export DAGSHUB_USER_TOKEN="your_token"
 export MLFLOW_TRACKING_USERNAME="your_username"
 export MLFLOW_TRACKING_PASSWORD="your_password"
 export HF_TOKEN="your_huggingface_token"  # For deployment
+
+export AWS_ACCESS_KEY_ID="your_aws_access_key"
+export AWS_SECRET_ACCESS_KEY="your_aws_secret_key"
+export MLFLOW_TRACKING_URI="https://dagshub.com/ShenghaoisYummy/E-commerce-Chatbot.mlflow"
+
 ```
 
 ### 3. Run ML Pipeline
