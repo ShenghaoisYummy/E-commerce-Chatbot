@@ -1,10 +1,10 @@
-# E-commerce Chatbot
+# E-commerce AI assistant
 
 A comprehensive end-to-end machine learning project for building and deploying an intelligent e-commerce chatbot. This project combines modern MLOps practices with a production-ready web application, featuring automated hyperparameter optimization, model fine-tuning, intelligent model selection, and automated deployment to Hugging Face Hub.
 
 ## 🚀 Features
 
-- **🤖 Advanced Chatbot**: Fine-tuned TinyLlama model for e-commerce conversations
+- **🤖 Advanced AI assistant**: Fine-tuned TinyLlama model for e-commerce conversations
 - **🔄 MLOps Pipeline**: Automated data preprocessing, training, evaluation, and deployment with DVC
 - **🎯 Hyperparameter Optimization**: Automated HPO using Optuna with MLflow tracking
 - **📊 Experiment Tracking**: Comprehensive logging with MLflow and DagHub integration
