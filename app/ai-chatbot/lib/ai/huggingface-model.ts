@@ -126,7 +126,7 @@ export const huggingFaceModel: LanguageModelV1 = {
             rawCall: { rawPrompt: prompt, rawSettings: options },
             finishReason: "stop",
             usage: { promptTokens: 0, completionTokens: 0 },
-            text: "Please contact author to enable Hugging Face space server for demo.",
+            text: "Please contact author to enable Hugging Face space server for Fine-tuned TinyLlama model demo or you can try to use the chatgpt model at the top left of the page.",
           };
         }
 
