@@ -26,10 +26,10 @@ export const myProvider = isTestEnvironment
     })
   : customProvider({
       languageModels: {
-        "chat-model": openai("gpt-4.1-nano"),
+        "chat-model": openai("gpt-5-nano"),
         "chat-model-reasoning": huggingFaceModel,
-        "title-model": openai("gpt-4.1-nano"),
-        "artifact-model": openai("gpt-4.1-nano"),
+        "title-model": openai("gpt-5-nano"),
+        "artifact-model": openai("gpt-5-nano"),
         "huggingface-model": huggingFaceModel, // Changed from "huggingface-tinyllama"
       },
     });
