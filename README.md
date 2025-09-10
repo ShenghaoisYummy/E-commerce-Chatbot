@@ -16,6 +16,8 @@ A comprehensive end-to-end machine learning project for building and deploying a
 
 ## 🏗️ Architecture
 
+<img width="1912" height="927" alt="Screenshot 2025-09-10 at 11 42 33" src="https://github.com/user-attachments/assets/266c873d-41a9-4d63-b5f3-962ffe9ccbe2" />
+
 ### ML Pipeline
 
 ```
