@@ -14,9 +14,9 @@ A comprehensive end-to-end machine learning project for building and deploying a
 - **⚡ CI/CD Pipeline**: Automated GitHub Actions workflow for feature development
 - **📈 Model Evaluation**: Comprehensive BLEU and ROUGE metrics for response quality assessment
 
-## ScreenShot
+## Preview
 
-![Project Screenshot] <img width="1885" height="919" alt="Screenshot 2025-09-10 at 11 43 21" src="https://github.com/user-attachments/assets/08d4d38a-2832-4516-bed4-0922ee5c3837" />
+<img width="1235" height="756" alt="Screenshot 2025-09-10 at 13 20 34" src="https://github.com/user-attachments/assets/6dfe4c6a-8ce2-4573-9bc6-9d0f27a86f5a" />
 
 ## 🏗️ Architecture
 
