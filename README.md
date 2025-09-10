@@ -16,7 +16,7 @@ A comprehensive end-to-end machine learning project for building and deploying a
 
 ## ScreenShot
 
-<img width="1885" height="919" alt="Screenshot 2025-09-10 at 11 43 21" src="https://github.com/user-attachments/assets/08d4d38a-2832-4516-bed4-0922ee5c3837" />
+![Project Screenshot] <img width="1885" height="919" alt="Screenshot 2025-09-10 at 11 43 21" src="https://github.com/user-attachments/assets/08d4d38a-2832-4516-bed4-0922ee5c3837" />
 
 ## 🏗️ Architecture
 
